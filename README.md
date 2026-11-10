@@ -20,72 +20,54 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 - **Filtreleme ve sıralama:** Alan/Sahip/Durum filtreleri, metin arama ve sütun başlığına tıklayarak sıralama.
 - **Yedekleme:** **Yedek Al (JSON)** / **Yedekten Yükle** ve **Excel'e Aktar** (.xlsx – "Görevler" ve "Listeler" sayfaları).
 
+
 ## Veri saklama
 
-Uygulamanın iki çalışma modu vardır; hangisinin kullanılacağı `config.js` dosyasına göre belirlenir.
+Uygulamanın iki çalışma modu vardır; hangisinin kullanılacağı `config.js` dosyasındaki `databaseUrl` değerine göre belirlenir.
 
-### ☁ SharePoint modu (önerilen – otomatik kayıt)
+### ☁ Ortak veritabanı modu (önerilen – girişsiz, otomatik kayıt)
 
-`config.js` doldurulduğunda kullanıcılar **Microsoft iş hesabıyla** giriş yapar ve veriler ekibin SharePoint sitesindeki listelerde saklanır:
+`databaseUrl` doldurulduğunda veriler ekibin **Firebase Realtime Database** veritabanında saklanır:
 
+- **Giriş gerekmez:** Bağlantıya sahip herkes görevleri görebilir ve düzenleyebilir.
 - Her değişiklik (ekleme, düzenleme, durum değişikliği, sürükle-bırak, ayarlar) **otomatik olarak** kaydedilir; manuel yedek gerekmez.
 - Tüm ekip aynı listeyi görür. Başkalarının değişiklikleri 30 saniyede bir ve sayfaya dönüldüğünde otomatik çekilir.
 - Bağlantı koparsa değişiklikler tarayıcıda bekletilir ("Çevrimdışı" durumu) ve bağlantı gelince gönderilir.
 - Üst çubukta eşitleme durumu görünür: **Kaydediliyor… / Kaydedildi / Çevrimdışı / Hata**.
-- SharePoint'in sürüm geçmişi sayesinde her görevin eski hâllerine SharePoint'ten ulaşılabilir.
+- Veritabanı kuralları (`database.rules.json`) şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** durumundaki görevlerin silinmesi, Alan/Sahip/Durum listelerinin silinmesi ve hatalı biçimli kayıtlar.
 
-İlk girişte uygulama siteye iki liste oluşturur (yoksa):
+Veri yapısı:
 
-| Liste | Sütunlar (hepsi metin) | İçerik |
-|---|---|---|
-| `Gorevler` | Title (Görev), TaskId, Alan, Sahip, Durum, TamamlanmaTarihi (`YYYY-MM-DD`), CompletedAt | Her satır bir görev |
-| `GorevAyarlari` | Title (`alan` / `sahip` / `durum`), Degerler (çok satırlı düz metin, her satırda bir değer) | Parametrik listeler |
+| Yol | İçerik |
+|---|---|
+| `/tasks/{id}` | `id, gorev, alan, sahip, durum, tamamlanmaTarihi (YYYY-MM-DD), completedAt, createdAt, updatedAt` |
+| `/lists/{alan\|sahip\|durum}` | Değerler, her satırda bir değer olacak şekilde metin |
 
-> Bu tarayıcıda daha önce yerel olarak girilmiş görevler varsa, ilk girişte "SharePoint'e yüklensin mi?" diye sorulur.
+> Bu tarayıcıda daha önce yerel olarak girilmiş görevler varsa, ilk açılışta "ortak listeye aktarılsın mı?" diye sorulur.
+
+> ⚠️ **Güvenlik:** Giriş olmadığı için veritabanı adresini (veya sayfa bağlantısını) bilen herkes verileri okuyup değiştirebilir; depo herkese açık olduğundan adres de herkese açıktır. **Gizli/kişisel veri saklamayın.** Firebase konsolundan veriyi düzenli olarak dışa aktarabilir veya uygulamadaki **Yedek Al (JSON)** düğmesini kullanabilirsiniz.
 
 ### 💻 Yerel mod
 
-`config.js` boşsa veriler yalnızca kullandığınız tarayıcının `localStorage` alanında saklanır (sunucuya gönderilmez). Farklı tarayıcıda görünmez ve tarayıcı verileri temizlenirse kaybolur; bu modda **Yedek Al (JSON)** ile düzenli yedek alın.
+`databaseUrl` boşsa veriler yalnızca kullandığınız tarayıcının `localStorage` alanında saklanır (sunucuya gönderilmez). Farklı tarayıcıda görünmez ve tarayıcı verileri temizlenirse kaybolur; bu modda **Yedek Al (JSON)** ile düzenli yedek alın.
 
-## SharePoint kurulumu (bir kerelik)
+## Firebase kurulumu (bir kerelik, ücretsiz)
 
-### 1. Entra ID'de uygulama kaydı
-
-1. https://entra.microsoft.com → **Uygulamalar → Uygulama kayıtları → Yeni kayıt**
-   - Ad: `Ekip Görev Takibi`
-   - Desteklenen hesap türleri: **Yalnızca bu kuruluş dizinindeki hesaplar (Tek kiracı)**
-   - Yeniden yönlendirme URI'si: platform **Tek sayfalı uygulama (SPA)**, değer `https://muratelmastr.github.io/task-manager/`
-2. **Kaydet**'e tıklayın. Genel bakış sayfasındaki **Uygulama (istemci) kimliği** ve **Dizin (kiracı) kimliği** değerlerini not edin.
-3. (İsteğe bağlı, yerel test için) **Kimlik doğrulama** → SPA altında `http://localhost:8080/` adresini de ekleyin.
-4. **API izinleri → İzin ekle → Microsoft Graph → Temsilci izinleri** → `Sites.Manage.All` → **İzin ekle**.
-   - Listeleri SharePoint'te kendiniz oluşturacaksanız (aşağıya bakın) `Sites.ReadWrite.All` yeterlidir; bu durumda `config.js` içindeki `scopes` değerini de değiştirin.
-5. Kuruluşunuz kullanıcıların izin vermesine kapalıysa bir yöneticinin **"… için yönetici onayı ver"** düğmesine basması gerekir. İlk girişte "Yönetici onayı gerekli" mesajı görürseniz BT ekibinden bu onayı isteyin.
-
-> Uygulama kaydında **istemci gizli anahtarı (secret) oluşturmayın**; tarayıcı uygulaması gizli anahtar kullanmaz. Client ID ve Tenant ID gizli bilgi değildir, depoda bulunabilir.
-
-### 2. SharePoint sitesi
-
-- Görevlerin saklanacağı ekip sitesini seçin (ör. `https://sirket.sharepoint.com/sites/Ekip`).
-- Ekip üyelerinin bu sitede **düzenleme (Üye)** yetkisi olmalıdır. Uygulama yalnızca giriş yapan kullanıcının yetkileriyle çalışır.
-
-### 3. `config.js`
+1. https://console.firebase.google.com → **Proje ekle** (ör. `ekip-gorev-takibi`). Google Analytics'i kapatabilirsiniz.
+2. Sol menü **Derleme (Build) → Realtime Database → Veritabanı oluştur**
+   - Konum: **Belçika (europe-west1)**
+   - **Kilitli modda başlat** seçin.
+3. **Kurallar (Rules)** sekmesine bu depodaki `database.rules.json` dosyasının içeriğini yapıştırıp **Yayınla**'ya tıklayın.
+4. **Veri (Data)** sekmesinin üstündeki veritabanı adresini kopyalayın (ör. `https://ekip-gorev-takibi-default-rtdb.europe-west1.firebasedatabase.app`) ve `config.js` dosyasına yazın:
 
 ```js
 window.TASK_MANAGER_CONFIG = {
-  clientId: '00000000-0000-0000-0000-000000000000', // Uygulama (istemci) kimliği
-  tenantId: '00000000-0000-0000-0000-000000000000', // Dizin (kiracı) kimliği
-  siteUrl: 'https://sirket.sharepoint.com/sites/Ekip',
-  taskListName: 'Gorevler',
-  settingsListName: 'GorevAyarlari',
-  scopes: ['Sites.Manage.All'],
+  databaseUrl: 'https://ekip-gorev-takibi-default-rtdb.europe-west1.firebasedatabase.app',
 };
 ```
 
-Değişikliği `main` dalına gönderdiğinizde GitHub Pages sayfası SharePoint modunda açılır.
+Değişikliği `main` dalına gönderdiğinizde GitHub Pages sayfası ortak veritabanı modunda açılır. Ücretsiz Spark planı (1 GB depolama, aylık 10 GB indirme) bir ekip görev listesi için fazlasıyla yeterlidir; kredi kartı gerekmez.
 
-### Listeleri elle oluşturma (Sites.Manage.All verilemezse)
-
-SharePoint sitesinde **Yeni → Liste → Boş liste** ile yukarıdaki tablodaki iki listeyi aynı adlarla oluşturun ve sütunları **Tek satırlık metin** olarak ekleyin (`Degerler` sütunu **Çok satırlı metin – düz metin**). Sütun *iç adlarının* tablodakiyle birebir aynı olması gerekir; bu yüzden sütunları önce Türkçe karakter ve boşluk olmadan oluşturun.
 ## Yerel kullanım
 
 Depoyu indirip `index.html` dosyasını tarayıcıda açmanız yeterlidir. Excel'e aktarma için internet bağlantısı gerekir (SheetJS kütüphanesi CDN'den yüklenir).
@@ -96,6 +78,7 @@ Depoyu indirip `index.html` dosyasını tarayıcıda açmanız yeterlidir. Excel
 |---|---|
 | `index.html` | Sayfa yapısı |
 | `styles.css` | Görünüm |
-| `app.js` | Uygulama mantığı (veri, tablo, filtreler, ayarlar, içe/dışa aktarma, SharePoint eşitleme) |
-| `cloud.js` | Microsoft girişi (MSAL) ve Microsoft Graph / SharePoint erişimi |
-| `config.js` | Uygulama kaydı ve SharePoint sitesi ayarları |
+| `app.js` | Uygulama mantığı (veri, tablo, filtreler, ayarlar, içe/dışa aktarma, bulut eşitleme) |
+| `cloud.js` | Firebase Realtime Database REST istemcisi (SDK veya API anahtarı gerekmez) |
+| `config.js` | Veritabanı adresi (`databaseUrl`) |
+| `database.rules.json` | Firebase konsoluna yapıştırılacak veritabanı kuralları |

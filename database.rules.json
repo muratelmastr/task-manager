@@ -1,0 +1,27 @@
+{
+  "rules": {
+    ".read": true,
+    "tasks": {
+      "$key": {
+        ".write": "newData.exists() || data.child('durum').val() !== 'Tamamlandı'",
+        ".validate": "$key.length <= 120 && newData.hasChildren(['id', 'gorev', 'durum'])",
+        "id": { ".validate": "newData.isString() && newData.val().length <= 120" },
+        "gorev": { ".validate": "newData.isString() && newData.val().length <= 1000" },
+        "alan": { ".validate": "newData.isString() && newData.val().length <= 200" },
+        "sahip": { ".validate": "newData.isString() && newData.val().length <= 200" },
+        "durum": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+        "tamamlanmaTarihi": { ".validate": "newData.isString() && (newData.val() === '' || newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/))" },
+        "completedAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "createdAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "updatedAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "$other": { ".validate": false }
+      }
+    },
+    "lists": {
+      "$key": {
+        ".write": "newData.exists()",
+        ".validate": "($key === 'alan' || $key === 'sahip' || $key === 'durum') && newData.isString() && newData.val().length <= 20000"
+      }
+    }
+  }
+}

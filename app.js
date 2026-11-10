@@ -2,12 +2,12 @@
   'use strict';
 
   const STORAGE_KEY = 'taskManager.v1';
-  const CLOUD_CACHE_KEY = 'taskManager.cloud.v1';
+  const CLOUD_CACHE_KEY = 'taskManager.cloud.v2';
   const MIGRATED_KEY = 'taskManager.v1.migratedAt';
   const VIEW_KEY = 'taskManager.view';
   const POLL_MS = 30000;
   const config = window.TASK_MANAGER_CONFIG || {};
-  const cloudEnabled = !!(config.clientId && config.tenantId && config.siteUrl && window.TaskCloud);
+  const cloudEnabled = !!(config.databaseUrl && window.TaskCloud);
   const DONE = 'Tamamlandı';
   const RED_DAYS = 3;
   const YELLOW_DAYS = 7;
@@ -165,17 +165,18 @@
     try {
       const raw = JSON.parse(localStorage.getItem(CLOUD_CACHE_KEY));
       if (raw && raw.data) {
-        return { data: normalize(raw.data), remote: raw.remote || { tasks: {}, settings: {} }, ids: raw.ids || null, lastSyncAt: raw.lastSyncAt || null };
+        const remote = raw.remote && raw.remote.tasks && raw.remote.lists ? raw.remote : { tasks: {}, lists: {} };
+        return { data: normalize(raw.data), remote, lastSyncAt: raw.lastSyncAt || null };
       }
     } catch (err) {
       console.warn('Önbellek okunamadı', err);
     }
-    return { data: seedData(), remote: { tasks: {}, settings: {} }, ids: null, lastSyncAt: null };
+    return { data: seedData(), remote: { tasks: {}, lists: {} }, lastSyncAt: null };
   }
 
   function persistCloudCache() {
     try {
-      localStorage.setItem(CLOUD_CACHE_KEY, JSON.stringify({ data, remote: cloud.remote, ids: cloud.ids, lastSyncAt: cloud.lastSyncAt }));
+      localStorage.setItem(CLOUD_CACHE_KEY, JSON.stringify({ data, remote: cloud.remote, lastSyncAt: cloud.lastSyncAt }));
     } catch (err) {
       console.warn('Önbellek yazılamadı', err);
     }
@@ -198,9 +199,9 @@
     return lists.durum.find((d) => d !== DONE) || DONE;
   }
 
-  // status: login | loading | saving | saved | error | offline
+  // status: loading | saving | saved | error | offline
   const cloud = cloudEnabled ? {
-    auth: null, graph: null, ids: null, remote: { tasks: {}, settings: {} }, ready: false,
+    store: null, remote: { tasks: {}, lists: {} }, ready: false,
     status: 'loading', error: null, lastSyncAt: null, timer: null, queue: Promise.resolve(), renderPending: false,
   } : null;
 
@@ -208,7 +209,7 @@
   if (cloud) {
     const cache = loadCloudCache();
     data = cache.data;
-    Object.assign(cloud, { remote: cache.remote, ids: cache.ids, lastSyncAt: cache.lastSyncAt });
+    Object.assign(cloud, { remote: cache.remote, lastSyncAt: cache.lastSyncAt });
   } else {
     data = load();
     save();
@@ -830,12 +831,12 @@
         return;
       }
       if (cloud) {
-        if (!cloud.ready) { alert('Önce SharePoint bağlantısının kurulmasını bekleyin.'); return; }
-        const msg = `Yedekteki ${incoming.tasks.length} görev SharePoint listesine eklenecek (aynı görevler güncellenir, mevcut görevler silinmez). Devam edilsin mi?`;
+        if (!cloud.ready) { alert('Önce ortak veritabanı bağlantısının kurulmasını bekleyin.'); return; }
+        const msg = `Yedekteki ${incoming.tasks.length} görev ortak listeye eklenecek (aynı görevler güncellenir, mevcut görevler silinmez). Devam edilsin mi?`;
         if (!confirm(msg)) return;
         mergeIncoming(incoming);
         save();
-        toast('Yedek SharePoint\'e yükleniyor…');
+        toast('Yedek ortak listeye yükleniyor…');
         return;
       }
       const msg = `Yedekte ${incoming.tasks.length} görev var. Mevcut ${data.tasks.length} görev ve liste ayarları bu yedekle DEĞİŞTİRİLECEK. Devam edilsin mi?`;
@@ -910,33 +911,30 @@
     XLSX.writeFile(wb, `gorevler-${todayIso()}.xlsx`);
   }
 
-  // ---------- Cloud sync (SharePoint lists via Microsoft Graph) ----------
+  // ---------- Cloud sync (Firebase Realtime Database, no login) ----------
 
-  const taskFields = (t) => ({
-    Title: t.gorev.slice(0, 255),
-    TaskId: t.id,
-    Alan: t.alan,
-    Sahip: t.sahip,
-    Durum: t.durum,
-    TamamlanmaTarihi: t.tamamlanmaTarihi,
-    CompletedAt: t.completedAt || '',
-  });
-  const taskSig = (t) => JSON.stringify(taskFields(t));
+  const taskValue = (t) => {
+    const v = { id: t.id, gorev: t.gorev, alan: t.alan, sahip: t.sahip, durum: t.durum, tamamlanmaTarihi: t.tamamlanmaTarihi, createdAt: t.createdAt, updatedAt: t.updatedAt };
+    if (t.completedAt) v.completedAt = t.completedAt;
+    return v;
+  };
+  const taskSig = (t) => JSON.stringify([t.gorev, t.alan, t.sahip, t.durum, t.tamamlanmaTarihi, t.completedAt || '']);
   const listSig = (values) => values.join('\n');
+  const taskPath = (id) => `tasks/${window.TaskCloud.encodeKey(id)}`;
 
-  function taskFromItem(item) {
-    const f = item.fields || {};
-    const durum = str(f.Durum);
+  function taskFromServer(v) {
+    const durum = str(v.durum);
+    const tarih = str(v.tamamlanmaTarihi);
     return {
-      id: str(f.TaskId) || `sp-${item.id}`,
-      gorev: str(f.Title),
-      alan: str(f.Alan),
-      sahip: str(f.Sahip),
+      id: str(v.id),
+      gorev: str(v.gorev),
+      alan: str(v.alan),
+      sahip: str(v.sahip),
       durum: sameText(durum, DONE) ? DONE : durum,
-      tamamlanmaTarihi: isIsoDate(str(f.TamamlanmaTarihi)) ? str(f.TamamlanmaTarihi) : '',
-      createdAt: item.createdDateTime || nowIso(),
-      updatedAt: item.lastModifiedDateTime || nowIso(),
-      completedAt: str(f.CompletedAt) || null,
+      tamamlanmaTarihi: isIsoDate(tarih) ? tarih : '',
+      createdAt: str(v.createdAt) || nowIso(),
+      updatedAt: str(v.updatedAt) || nowIso(),
+      completedAt: str(v.completedAt) || null,
     };
   }
 
@@ -954,39 +952,41 @@
     render();
   }
 
+  // cloud.remote holds the signature of each record as last seen on the server.
   // Server state wins unless this browser has an unsynced change for the same record.
-  function mergeServer(items, settingItems) {
+  function mergeServer(server) {
     const before = JSON.stringify([data.lists, data.tasks]);
-    const remote = { tasks: {}, settings: {} };
+    const remote = { tasks: {}, lists: {} };
     const byId = new Map(data.tasks.map((t) => [t.id, t]));
     const merged = [];
 
     const lists = {};
     for (const key of LIST_KEYS) {
-      const item = settingItems.find((s) => str(s.fields && s.fields.Title) === key);
-      const known = cloud.remote.settings[key];
-      if (!item) {
+      const values = server.lists[key];
+      if (!values) {
         lists[key] = data.lists[key];
         continue;
       }
-      const values = str(item.fields.Degerler).split(/\r?\n/).map(str).filter(Boolean);
-      remote.settings[key] = { spId: item.id, sig: listSig(values) };
-      const localPending = known && listSig(data.lists[key]) !== known.sig;
-      lists[key] = localPending ? data.lists[key] : values;
+      const clean = values.map(str).filter(Boolean);
+      const known = cloud.remote.lists[key];
+      remote.lists[key] = listSig(clean);
+      const localPending = known !== undefined && listSig(data.lists[key]) !== known;
+      lists[key] = localPending ? data.lists[key] : clean;
     }
 
-    for (const item of items) {
-      const server = taskFromItem(item);
-      const known = cloud.remote.tasks[server.id];
-      const local = byId.get(server.id);
-      remote.tasks[server.id] = { spId: item.id, sig: taskSig(server) };
-      if (local && known && taskSig(local) !== known.sig) merged.push(local);
-      else if (!local && known) continue; // deleted here, delete pending
-      else if (local) merged.push(Object.assign(local, server)); // keep object identity for open editors
-      else merged.push(server);
+    for (const v of server.tasks) {
+      const s = taskFromServer(v);
+      if (!s.id || remote.tasks[s.id] !== undefined) continue;
+      const known = cloud.remote.tasks[s.id];
+      const local = byId.get(s.id);
+      remote.tasks[s.id] = taskSig(s);
+      if (local && known !== undefined && taskSig(local) !== known) merged.push(local);
+      else if (!local && known !== undefined) continue; // deleted here, delete pending
+      else if (local) merged.push(Object.assign(local, s)); // keep object identity for open editors
+      else merged.push(s);
     }
     for (const t of data.tasks) {
-      if (!remote.tasks[t.id] && !cloud.remote.tasks[t.id]) merged.push(t); // created here, not yet pushed
+      if (remote.tasks[t.id] === undefined && cloud.remote.tasks[t.id] === undefined) merged.push(t); // created here, not yet pushed
     }
 
     const normalized = normalize({ lists, tasks: merged, meta: data.meta });
@@ -999,44 +999,42 @@
   }
 
   function buildOps() {
-    const { siteId, taskListId, settingsListId } = cloud.ids;
-    const items = (listId) => `/sites/${siteId}/lists/${listId}/items`;
     const ops = [];
     for (const t of data.tasks) {
-      const known = cloud.remote.tasks[t.id];
       const sig = taskSig(t);
-      if (!known) ops.push({ kind: 'task', id: t.id, sig, method: 'POST', url: items(taskListId), body: { fields: taskFields(t) } });
-      else if (known.sig !== sig) ops.push({ kind: 'task', id: t.id, sig, method: 'PATCH', url: `${items(taskListId)}/${known.spId}/fields`, body: taskFields(t) });
+      if (cloud.remote.tasks[t.id] !== sig) ops.push({ kind: 'tasks', id: t.id, sig, path: taskPath(t.id), value: taskValue(t) });
     }
     const ids = new Set(data.tasks.map((t) => t.id));
-    for (const [id, known] of Object.entries(cloud.remote.tasks)) {
-      if (!ids.has(id)) ops.push({ kind: 'task', id, method: 'DELETE', url: `${items(taskListId)}/${known.spId}` });
+    for (const id of Object.keys(cloud.remote.tasks)) {
+      if (!ids.has(id)) ops.push({ kind: 'tasks', id, path: taskPath(id), value: null });
     }
     for (const key of LIST_KEYS) {
-      const known = cloud.remote.settings[key];
       const sig = listSig(data.lists[key]);
-      const fields = { Title: key, Degerler: sig };
-      if (!known) ops.push({ kind: 'settings', id: key, sig, method: 'POST', url: items(settingsListId), body: { fields } });
-      else if (known.sig !== sig) ops.push({ kind: 'settings', id: key, sig, method: 'PATCH', url: `${items(settingsListId)}/${known.spId}/fields`, body: fields });
+      if (cloud.remote.lists[key] !== sig) ops.push({ kind: 'lists', id: key, sig, path: `lists/${key}`, value: sig });
     }
     return ops;
   }
 
   async function pushOps(ops) {
-    const results = await cloud.graph.batch(ops.map(({ method, url, body }) => ({ method, url, body })));
-    let failed = null;
+    const results = await cloud.store.write(ops.map(({ path, value }) => ({ path, value })));
+    let rejected = 0;
     ops.forEach((op, i) => {
-      const { status, body } = results[i];
-      const store = op.kind === 'task' ? cloud.remote.tasks : cloud.remote.settings;
-      const ok = status >= 200 && status < 300;
-      if (op.method === 'DELETE' && (ok || status === 404)) delete store[op.id];
-      else if (op.method === 'POST' && ok) store[op.id] = { spId: body.id, sig: op.sig };
-      else if (op.method === 'PATCH' && ok) store[op.id].sig = op.sig;
-      else if (op.method === 'PATCH' && status === 404) delete store[op.id]; // removed on the server: recreate next time
-      else failed = failed || `${status} ${(body && body.error && body.error.message) || ''}`.trim();
+      const store = cloud.remote[op.kind];
+      if (results[i].ok) {
+        if (op.value === null) delete store[op.id];
+        else store[op.id] = op.sig;
+      } else {
+        // Rejected by the database rules (e.g. a teammate completed a task that was deleted here):
+        // forget the snapshot so the next pull restores the server copy.
+        delete store[op.id];
+        rejected += 1;
+      }
     });
     persistCloudCache();
-    if (failed) throw new Error(`Bazı değişiklikler kaydedilemedi (${failed}).`);
+    if (rejected) {
+      toast(`${rejected} değişiklik veritabanı kurallarınca reddedildi; sunucudaki hâli geri yüklendi.`);
+      await runPull();
+    }
   }
 
   function offerMigration() {
@@ -1045,9 +1043,9 @@
     try { local = normalize(JSON.parse(localStorage.getItem(STORAGE_KEY))); } catch (e) { return; }
     const ids = new Set(data.tasks.map((t) => t.id));
     const fresh = local.tasks.filter((t) => !ids.has(t.id));
-    if (fresh.length && confirm(`Bu tarayıcıda SharePoint'e aktarılmamış ${fresh.length} görev var. SharePoint listesine yüklensin mi?\n\n(İptal ederseniz görevler bu tarayıcıda kalır, daha sonra Yedek Al / Yedekten Yükle ile aktarabilirsiniz.)`)) {
+    if (fresh.length && confirm(`Bu tarayıcıda ortak listeye aktarılmamış ${fresh.length} görev var. Ortak listeye yüklensin mi?\n\n(İptal ederseniz görevler bu tarayıcıda kalır, daha sonra Yedek Al / Yedekten Yükle ile aktarabilirsiniz.)`)) {
       mergeIncoming(local);
-      toast(`${fresh.length} görev SharePoint'e yükleniyor…`);
+      toast(`${fresh.length} görev ortak listeye yükleniyor…`);
     }
     localStorage.setItem(MIGRATED_KEY, nowIso());
   }
@@ -1081,7 +1079,6 @@
     const el2 = $('#cloud-status');
     const time = cloud.lastSyncAt ? new Date(cloud.lastSyncAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
     const states = {
-      login: ['Giriş yapılmadı', 'warn'],
       loading: ['⟳ Yükleniyor…', 'busy'],
       saving: ['⟳ Kaydediliyor…', 'busy'],
       saved: [`☁ Kaydedildi${time ? ` · ${time}` : ''}`, 'ok'],
@@ -1091,10 +1088,7 @@
     const [text, cls] = states[cloud.status];
     el2.textContent = text;
     el2.className = `cloud-status cloud-${cls}`;
-    el2.title = cloud.error ? cloud.error : `SharePoint: ${(cloud.ids && cloud.ids.siteWebUrl) || config.siteUrl}`;
-    const account = cloud.auth && cloud.auth.account();
-    $('#cloud-user').textContent = account ? (account.name || account.username) : '';
-    $('#btn-logout').hidden = !account;
+    el2.title = cloud.error || 'Veriler ortak veritabanına otomatik kaydedilir.';
     renderBackupInfo();
   }
 
@@ -1110,19 +1104,20 @@
     return cloud.queue;
   }
 
+  async function runPull() {
+    const server = await cloud.store.fetchAll();
+    const firstLoad = !cloud.ready;
+    const changed = mergeServer(server);
+    cloud.ready = true;
+    persistCloudCache();
+    if (firstLoad) { render(); offerMigration(); } else if (changed) renderWhenIdle();
+  }
+
   async function runSync(pull) {
-    if (!cloud.graph || (!pull && !cloud.ready)) return;
+    if (!cloud.store || (!pull && !cloud.ready)) return;
     clearTimeout(cloud.timer);
     try {
-      if (!cloud.ids) cloud.ids = await cloud.graph.connect();
-      if (pull) {
-        const [items, settingItems] = await Promise.all([cloud.graph.fetchTasks(cloud.ids), cloud.graph.fetchSettings(cloud.ids)]);
-        const firstLoad = !cloud.ready;
-        const changed = mergeServer(items, settingItems);
-        cloud.ready = true;
-        persistCloudCache();
-        if (firstLoad) { render(); offerMigration(); } else if (changed) renderWhenIdle();
-      }
+      if (pull) await runPull();
       const ops = buildOps();
       if (ops.length) {
         setCloudStatus('saving');
@@ -1133,44 +1128,37 @@
       setCloudStatus('saved');
     } catch (err) {
       console.warn('Eşitleme hatası', err);
-      if (err.status === 404) cloud.ids = null; // site or list moved/deleted: resolve again next time
       const offline = !navigator.onLine || err.code === 'network';
       setCloudStatus(offline ? 'offline' : 'error', err.message);
       if (!cloud.ready) {
         $('#cloud-error').hidden = false;
-        $('#cloud-error').textContent = `SharePoint'e bağlanılamadı: ${err.message}`;
+        $('#cloud-error').textContent = `Ortak veritabanına bağlanılamadı: ${err.message}`;
       }
       return;
     }
     $('#cloud-error').hidden = true;
   }
 
-  const hasPendingChanges = () => !!(cloud && cloud.ready && cloud.ids && (cloud.status === 'saving' || buildOps().length));
+  const hasPendingChanges = () => !!(cloud && cloud.ready && (cloud.status === 'saving' || buildOps().length));
 
   async function startCloud() {
     document.body.classList.add('cloud-mode');
     $('#cloud-bar').hidden = false;
-    $('#storage-note').textContent = 'Veriler ekibin SharePoint listesinde saklanır ve her değişiklik otomatik kaydedilir.';
-    renderCloudStatus();
+    $('#storage-note').textContent = 'Veriler ekibin ortak bulut veritabanında saklanır ve her değişiklik otomatik kaydedilir.';
     try {
-      cloud.auth = await window.TaskCloud.createAuth(config);
+      cloud.store = window.TaskCloud.createStore(config);
     } catch (err) {
       setCloudStatus('error', err.message);
       $('#cloud-error').hidden = false;
-      $('#cloud-error').textContent = `Oturum başlatılamadı: ${err.message}`;
+      $('#cloud-error').textContent = err.message;
       return;
     }
-    if (!cloud.auth.account()) {
-      document.body.classList.add('needs-login');
-      setCloudStatus('login');
-      return;
-    }
-    cloud.graph = window.TaskCloud.createGraph(() => cloud.auth.getToken(), config);
     setCloudStatus('loading');
     await sync({ pull: true });
     setInterval(() => { if (document.visibilityState === 'visible') sync({ pull: true }); }, POLL_MS);
     window.addEventListener('focus', () => sync({ pull: true }));
     window.addEventListener('online', () => sync({ pull: true }));
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync({ pull: true }); });
     document.addEventListener('focusout', () => setTimeout(() => { if (cloud.renderPending) renderWhenIdle(); }, 0));
     ['task-dialog', 'settings-dialog'].forEach((id) => $(`#${id}`).addEventListener('close', () => { if (cloud.renderPending) renderWhenIdle(); }));
     window.addEventListener('beforeunload', (e) => {
@@ -1263,7 +1251,7 @@
       if (cloud && e.key === CLOUD_CACHE_KEY && e.newValue) {
         const cache = loadCloudCache();
         data = cache.data;
-        Object.assign(cloud, { remote: cache.remote, ids: cache.ids || cloud.ids, lastSyncAt: cache.lastSyncAt });
+        Object.assign(cloud, { remote: cache.remote, lastSyncAt: cache.lastSyncAt });
         renderWhenIdle();
         renderCloudStatus();
         return;
@@ -1274,13 +1262,6 @@
         if ($('#settings-dialog').open) renderSettings();
         if ($('#task-dialog').open) $('#task-dialog').close();
       }
-    });
-
-    $('#btn-login').addEventListener('click', () => cloud.auth.login());
-    $('#btn-logout').addEventListener('click', () => {
-      if (hasPendingChanges() && !confirm('Henüz SharePoint\'e kaydedilmemiş değişiklikler var ve çıkış yaparsanız kaybolacak. Yine de çıkılsın mı?')) return;
-      localStorage.removeItem(CLOUD_CACHE_KEY);
-      cloud.auth.logout();
     });
   }
 

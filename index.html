@@ -19,8 +19,6 @@
     <div class="header-actions">
       <div id="cloud-bar" class="cloud-bar" hidden>
         <span id="cloud-status" class="cloud-status"></span>
-        <span id="cloud-user" class="cloud-user"></span>
-        <button type="button" id="btn-logout" class="btn btn-link" hidden>Çıkış</button>
       </div>
       <button type="button" id="btn-export-xlsx" class="btn">Excel'e Aktar</button>
       <button type="button" id="btn-export-json" class="btn">Yedek Al (JSON)</button>
@@ -29,12 +27,6 @@
       <input type="file" id="file-import" accept=".json,application/json" hidden>
     </div>
   </header>
-
-  <section id="login-screen" class="login-screen">
-    <h2>Giriş yapın</h2>
-    <p>Görevler ekibin SharePoint listesinde saklanır. Devam etmek için şirket Microsoft hesabınızla giriş yapın.</p>
-    <button type="button" id="btn-login" class="btn btn-primary">Microsoft hesabıyla giriş yap</button>
-  </section>
 
   <main>
     <p id="cloud-error" class="cloud-error" role="alert" hidden></p>
