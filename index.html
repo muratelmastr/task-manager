@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ekip Görev Takibi</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9C%85%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>Ekip Görev Takibi</h1>
+    <div class="header-actions">
+      <button type="button" id="btn-export-xlsx" class="btn">Excel'e Aktar</button>
+      <button type="button" id="btn-export-json" class="btn">Yedek Al (JSON)</button>
+      <button type="button" id="btn-import-json" class="btn">Yedekten Yükle</button>
+      <button type="button" id="btn-settings" class="btn">⚙ Ayarlar</button>
+      <input type="file" id="file-import" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <main>
+    <section class="toolbar" aria-label="Filtreler">
+      <button type="button" id="btn-add" class="btn btn-primary">+ Yeni Görev</button>
+      <input type="search" id="search" placeholder="Ara…" aria-label="Ara">
+      <label>Alan <select id="filter-alan" data-filter="alan"></select></label>
+      <label>Sahip <select id="filter-sahip" data-filter="sahip"></select></label>
+      <label>Durum <select id="filter-durum" data-filter="durum"></select></label>
+      <label class="checkbox"><input type="checkbox" id="show-completed"> Tamamlananları göster</label>
+      <button type="button" id="btn-clear-filters" class="btn btn-link">Filtreleri temizle</button>
+    </section>
+
+    <section class="info-bar">
+      <div id="summary" class="summary"></div>
+      <div class="legend">
+        <span class="legend-item"><span class="swatch swatch-red"></span>3 günden az kaldı / gecikti</span>
+        <span class="legend-item"><span class="swatch swatch-yellow"></span>1 haftadan az kaldı</span>
+      </div>
+    </section>
+
+    <div class="table-wrap">
+      <table id="task-table">
+        <thead>
+          <tr>
+            <th data-sort="alan" class="col-alan">Alan</th>
+            <th data-sort="gorev" class="col-gorev">Görev</th>
+            <th data-sort="sahip" class="col-sahip">Sahip</th>
+            <th data-sort="durum" class="col-durum">Durum</th>
+            <th data-sort="tamamlanmaTarihi" class="col-tarih">Tamamlanma Tarihi</th>
+            <th data-sort="tamamlanmaTarihi" class="col-kalan">Kalan</th>
+            <th class="col-actions" aria-label="İşlemler"></th>
+          </tr>
+        </thead>
+        <tbody id="task-body"></tbody>
+      </table>
+      <p id="empty-state" class="empty-state" hidden></p>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <span>Veriler yalnızca bu tarayıcıda (localStorage) saklanır. Düzenli olarak <strong>Yedek Al</strong> ile yedekleyin.</span>
+    <span id="backup-info"></span>
+  </footer>
+
+  <dialog id="settings-dialog">
+    <form method="dialog" class="dialog-header">
+      <h2>Ayarlar – Liste Değerleri</h2>
+      <button class="btn btn-link" value="close" aria-label="Kapat">✕</button>
+    </form>
+    <p class="hint">Değerleri yeniden adlandırdığınızda mevcut görevler de güncellenir. Görevlerde kullanılan değerler silinemez. "Tamamlandı" durumu sabittir.</p>
+    <div id="settings-lists" class="settings-lists"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
