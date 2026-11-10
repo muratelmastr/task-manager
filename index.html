@@ -9,7 +9,13 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>Ekip Görev Takibi</h1>
+    <div class="header-left">
+      <h1>Ekip Görev Takibi</h1>
+      <div class="view-toggle" role="group" aria-label="Görünüm">
+        <button type="button" class="view-btn" data-view="list" aria-pressed="true">☰ Liste</button>
+        <button type="button" class="view-btn" data-view="board" aria-pressed="false">▦ Board</button>
+      </div>
+    </div>
     <div class="header-actions">
       <button type="button" id="btn-export-xlsx" class="btn">Excel'e Aktar</button>
       <button type="button" id="btn-export-json" class="btn">Yedek Al (JSON)</button>
@@ -38,7 +44,7 @@
       </div>
     </section>
 
-    <div class="table-wrap">
+    <div id="list-view" class="table-wrap">
       <table id="task-table">
         <thead>
           <tr>
@@ -55,6 +61,8 @@
       </table>
       <p id="empty-state" class="empty-state" hidden></p>
     </div>
+
+    <div id="board-view" class="board" hidden></div>
   </main>
 
   <footer class="app-footer">
@@ -69,6 +77,30 @@
     </form>
     <p class="hint">Değerleri yeniden adlandırdığınızda mevcut görevler de güncellenir. Görevlerde kullanılan değerler silinemez. "Tamamlandı" durumu sabittir.</p>
     <div id="settings-lists" class="settings-lists"></div>
+  </dialog>
+
+  <dialog id="task-dialog">
+    <form id="task-form">
+      <div class="dialog-header">
+        <h2 id="task-dialog-title">Görev</h2>
+        <button type="button" class="btn btn-link" data-close aria-label="Kapat">✕</button>
+      </div>
+      <label class="field">Görev
+        <input type="text" name="gorev" required placeholder="Görev açıklaması…">
+      </label>
+      <div class="field-grid">
+        <label class="field">Alan <select name="alan"></select></label>
+        <label class="field">Sahip <select name="sahip"></select></label>
+        <label class="field">Durum <select name="durum"></select></label>
+        <label class="field">Tamamlanma Tarihi <input type="date" name="tamamlanmaTarihi"></label>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="task-delete" class="btn btn-danger">Sil</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Vazgeç</button>
+        <button type="submit" class="btn btn-primary">Kaydet</button>
+      </div>
+    </form>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

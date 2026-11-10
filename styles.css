@@ -38,6 +38,26 @@ body {
 
 .app-header h1 { margin: 0; font-size: 20px; }
 
+.header-left { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.view-btn {
+  font: inherit;
+  padding: 6px 14px;
+  border: 0;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.view-btn + .view-btn { border-left: 1px solid var(--border); }
+.view-btn:hover { background: #eef1f5; }
+.view-btn.active { background: var(--primary); color: #fff; }
+
 .header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 main { padding: 16px 24px; }
@@ -155,6 +175,72 @@ tr.is-new { box-shadow: inset 3px 0 0 var(--primary); }
 
 .empty-state { padding: 24px; margin: 0; text-align: center; color: var(--muted); }
 
+.board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  gap: 12px;
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.board[hidden] { display: none; }
+.board-column {
+  min-height: 220px;
+  padding: 8px;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  background: #e9ecf1;
+}
+.board-column.drag-over { border-color: var(--primary); background: #e0e8fb; }
+.board-column h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 4px 4px 10px;
+  font-size: 14px;
+}
+.count-badge {
+  padding: 0 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.board-cards { display: flex; flex-direction: column; gap: 8px; min-height: 40px; }
+.board-note { margin: 8px 4px; color: var(--muted); font-size: 13px; text-align: center; }
+
+.card {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.card:hover { box-shadow: 0 2px 6px rgba(0, 0, 0, .08); }
+.card:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.card.dragging { opacity: .45; }
+.card.is-new { border-left-color: var(--primary); }
+.card.due-yellow { background: var(--yellow-bg); border-color: var(--yellow-border); border-left-color: #d4a600; }
+.card.due-red { background: var(--red-bg); border-color: var(--red-border); border-left-color: var(--red-text); }
+.card.is-done { color: var(--done-text); }
+.card.is-done .card-title { text-decoration: line-through; }
+.card-alan {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #e8eefc;
+  color: var(--primary-dark);
+  font-size: 11px;
+}
+.card-title { margin-bottom: 6px; font-weight: 600; word-break: break-word; }
+.card-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 12px; }
+.card.due-red .card-due { color: var(--red-text); font-weight: 600; }
+.card.due-yellow .card-due { color: var(--yellow-text); font-weight: 600; }
+
 .app-footer {
   display: flex;
   flex-wrap: wrap;
@@ -187,6 +273,23 @@ dialog::backdrop { background: rgba(15, 23, 42, .35); }
 .settings-list .usage { min-width: 28px; text-align: right; color: var(--muted); font-size: 12px; }
 .settings-list .add-row { display: flex; gap: 6px; }
 .settings-list .add-row input { flex: 1; font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; }
+
+#task-dialog { width: min(620px, 95vw); }
+.field { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+.field input, .field select {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+}
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 20px; }
+.dialog-actions .spacer { flex: 1; }
+.btn-danger { color: var(--red-text); border-color: var(--red-border); }
+.btn-danger:hover { background: var(--red-bg); }
 
 .toast {
   position: fixed;
