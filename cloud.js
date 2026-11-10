@@ -148,7 +148,9 @@
     async function resolveSite() {
       let url;
       try { url = new URL(cfg.siteUrl); } catch (e) { throw new GraphError(0, `Geçersiz SharePoint site adresi: ${cfg.siteUrl}`); }
-      const path = decodeURIComponent(url.pathname).replace(/\/+$/, '');
+      const full = decodeURIComponent(url.pathname);
+      const m = full.match(/^\/(sites|teams)\/[^/]+/i);
+      const path = m ? m[0] : '';
       const site = await request('GET', path ? `/sites/${url.hostname}:${encodeURI(path)}` : `/sites/${url.hostname}`);
       return site;
     }
