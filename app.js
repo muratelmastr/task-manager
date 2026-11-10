@@ -2,7 +2,12 @@
   'use strict';
 
   const STORAGE_KEY = 'taskManager.v1';
+  const CLOUD_CACHE_KEY = 'taskManager.cloud.v2';
+  const MIGRATED_KEY = 'taskManager.v1.migratedAt';
   const VIEW_KEY = 'taskManager.view';
+  const POLL_MS = 30000;
+  const config = window.TASK_MANAGER_CONFIG || {};
+  const cloudEnabled = !!(config.databaseUrl && window.TaskCloud);
   const DONE = 'Tamamlandı';
   const RED_DAYS = 3;
   const YELLOW_DAYS = 7;
@@ -154,7 +159,35 @@
     }
   }
 
+  // Cloud mode: localStorage only caches the last known data plus the server snapshot,
+  // so unsaved changes survive a reload and are pushed on the next sync.
+  function loadCloudCache() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(CLOUD_CACHE_KEY));
+      if (raw && raw.data) {
+        const remote = raw.remote && raw.remote.tasks && raw.remote.lists ? raw.remote : { tasks: {}, lists: {} };
+        return { data: normalize(raw.data), remote, lastSyncAt: raw.lastSyncAt || null };
+      }
+    } catch (err) {
+      console.warn('Önbellek okunamadı', err);
+    }
+    return { data: seedData(), remote: { tasks: {}, lists: {} }, lastSyncAt: null };
+  }
+
+  function persistCloudCache() {
+    try {
+      localStorage.setItem(CLOUD_CACHE_KEY, JSON.stringify({ data, remote: cloud.remote, lastSyncAt: cloud.lastSyncAt }));
+    } catch (err) {
+      console.warn('Önbellek yazılamadı', err);
+    }
+  }
+
   function save() {
+    if (cloud) {
+      persistCloudCache();
+      scheduleSync();
+      return;
+    }
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (err) {
@@ -166,8 +199,21 @@
     return lists.durum.find((d) => d !== DONE) || DONE;
   }
 
-  let data = load();
-  save();
+  // status: loading | saving | saved | error | offline
+  const cloud = cloudEnabled ? {
+    store: null, remote: { tasks: {}, lists: {} }, ready: false,
+    status: 'loading', error: null, lastSyncAt: null, timer: null, queue: Promise.resolve(), renderPending: false,
+  } : null;
+
+  let data;
+  if (cloud) {
+    const cache = loadCloudCache();
+    data = cache.data;
+    Object.assign(cloud, { remote: cache.remote, lastSyncAt: cache.lastSyncAt });
+  } else {
+    data = load();
+    save();
+  }
 
   const ui = {
     view: localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list',
@@ -305,6 +351,7 @@
     const gorevInput = el('input', {
       type: 'text',
       class: 'gorev-input',
+      maxLength: 255,
       value: task.gorev,
       placeholder: 'Görev açıklaması…',
       title: task.gorev,
@@ -562,6 +609,11 @@
 
   function renderBackupInfo() {
     const info = $('#backup-info');
+    if (cloud) {
+      info.textContent = cloud.lastSyncAt ? `Son eşitleme: ${formatDateTime(cloud.lastSyncAt)}` : '';
+      info.classList.remove('warn');
+      return;
+    }
     const last = data.meta.lastBackupAt;
     let warn = false;
     if (last) {
@@ -778,6 +830,15 @@
         alert(`Dosya içe aktarılamadı: ${err.message}`);
         return;
       }
+      if (cloud) {
+        if (!cloud.ready) { alert('Önce ortak veritabanı bağlantısının kurulmasını bekleyin.'); return; }
+        const msg = `Yedekteki ${incoming.tasks.length} görev ortak listeye eklenecek (aynı görevler güncellenir, mevcut görevler silinmez). Devam edilsin mi?`;
+        if (!confirm(msg)) return;
+        mergeIncoming(incoming);
+        save();
+        toast('Yedek ortak listeye yükleniyor…');
+        return;
+      }
       const msg = `Yedekte ${incoming.tasks.length} görev var. Mevcut ${data.tasks.length} görev ve liste ayarları bu yedekle DEĞİŞTİRİLECEK. Devam edilsin mi?`;
       if (!confirm(msg)) return;
       data = incoming;
@@ -848,6 +909,261 @@
     XLSX.utils.book_append_sheet(wb, ws, 'Görevler');
     XLSX.utils.book_append_sheet(wb, wsLists, 'Listeler');
     XLSX.writeFile(wb, `gorevler-${todayIso()}.xlsx`);
+  }
+
+  // ---------- Cloud sync (Firebase Realtime Database, no login) ----------
+
+  const taskValue = (t) => {
+    const v = { id: t.id, gorev: t.gorev, alan: t.alan, sahip: t.sahip, durum: t.durum, tamamlanmaTarihi: t.tamamlanmaTarihi, createdAt: t.createdAt, updatedAt: t.updatedAt };
+    if (t.completedAt) v.completedAt = t.completedAt;
+    return v;
+  };
+  const taskSig = (t) => JSON.stringify([t.gorev, t.alan, t.sahip, t.durum, t.tamamlanmaTarihi, t.completedAt || '']);
+  const listSig = (values) => values.join('\n');
+  const taskPath = (id) => `tasks/${window.TaskCloud.encodeKey(id)}`;
+
+  function taskFromServer(v) {
+    const durum = str(v.durum);
+    const tarih = str(v.tamamlanmaTarihi);
+    return {
+      id: str(v.id),
+      gorev: str(v.gorev),
+      alan: str(v.alan),
+      sahip: str(v.sahip),
+      durum: sameText(durum, DONE) ? DONE : durum,
+      tamamlanmaTarihi: isIsoDate(tarih) ? tarih : '',
+      createdAt: str(v.createdAt) || nowIso(),
+      updatedAt: str(v.updatedAt) || nowIso(),
+      completedAt: str(v.completedAt) || null,
+    };
+  }
+
+  const isEditing = () => {
+    const a = document.activeElement;
+    return !!(a && a.closest && a.closest('#task-body, dialog')) || $('#task-dialog').open || $('#settings-dialog').open;
+  };
+
+  function renderWhenIdle() {
+    if (isEditing()) {
+      cloud.renderPending = true;
+      return;
+    }
+    cloud.renderPending = false;
+    render();
+  }
+
+  // cloud.remote holds the signature of each record as last seen on the server.
+  // Server state wins unless this browser has an unsynced change for the same record.
+  function mergeServer(server) {
+    const before = JSON.stringify([data.lists, data.tasks]);
+    const remote = { tasks: {}, lists: {} };
+    const byId = new Map(data.tasks.map((t) => [t.id, t]));
+    const merged = [];
+
+    const lists = {};
+    for (const key of LIST_KEYS) {
+      const values = server.lists[key];
+      if (!values) {
+        lists[key] = data.lists[key];
+        continue;
+      }
+      const clean = values.map(str).filter(Boolean);
+      const known = cloud.remote.lists[key];
+      remote.lists[key] = listSig(clean);
+      const localPending = known !== undefined && listSig(data.lists[key]) !== known;
+      lists[key] = localPending ? data.lists[key] : clean;
+    }
+
+    for (const v of server.tasks) {
+      const s = taskFromServer(v);
+      if (!s.id || remote.tasks[s.id] !== undefined) continue;
+      const known = cloud.remote.tasks[s.id];
+      const local = byId.get(s.id);
+      remote.tasks[s.id] = taskSig(s);
+      if (local && known !== undefined && taskSig(local) !== known) merged.push(local);
+      else if (!local && known !== undefined) continue; // deleted here, delete pending
+      else if (local) merged.push(Object.assign(local, s)); // keep object identity for open editors
+      else merged.push(s);
+    }
+    for (const t of data.tasks) {
+      if (remote.tasks[t.id] === undefined && cloud.remote.tasks[t.id] === undefined) merged.push(t); // created here, not yet pushed
+    }
+
+    const normalized = normalize({ lists, tasks: merged, meta: data.meta });
+    // normalize() rebuilds task objects; reuse the originals so open editors stay bound.
+    const originals = new Map(merged.map((t) => [t.id, t]));
+    data.lists = normalized.lists;
+    data.tasks = normalized.tasks.map((t) => Object.assign(originals.get(t.id) || t, t));
+    cloud.remote = remote;
+    return before !== JSON.stringify([data.lists, data.tasks]);
+  }
+
+  function buildOps() {
+    const ops = [];
+    for (const t of data.tasks) {
+      const sig = taskSig(t);
+      if (cloud.remote.tasks[t.id] !== sig) ops.push({ kind: 'tasks', id: t.id, sig, path: taskPath(t.id), value: taskValue(t) });
+    }
+    const ids = new Set(data.tasks.map((t) => t.id));
+    for (const id of Object.keys(cloud.remote.tasks)) {
+      if (!ids.has(id)) ops.push({ kind: 'tasks', id, path: taskPath(id), value: null });
+    }
+    for (const key of LIST_KEYS) {
+      const sig = listSig(data.lists[key]);
+      if (cloud.remote.lists[key] !== sig) ops.push({ kind: 'lists', id: key, sig, path: `lists/${key}`, value: sig });
+    }
+    return ops;
+  }
+
+  async function pushOps(ops) {
+    const results = await cloud.store.write(ops.map(({ path, value }) => ({ path, value })));
+    let rejected = 0;
+    ops.forEach((op, i) => {
+      const store = cloud.remote[op.kind];
+      if (results[i].ok) {
+        if (op.value === null) delete store[op.id];
+        else store[op.id] = op.sig;
+      } else {
+        // Rejected by the database rules (e.g. a teammate completed a task that was deleted here):
+        // forget the snapshot so the next pull restores the server copy.
+        delete store[op.id];
+        rejected += 1;
+      }
+    });
+    persistCloudCache();
+    if (rejected) {
+      toast(`${rejected} değişiklik veritabanı kurallarınca reddedildi; sunucudaki hâli geri yüklendi.`);
+      await runPull();
+    }
+  }
+
+  function offerMigration() {
+    if (localStorage.getItem(MIGRATED_KEY)) return;
+    let local;
+    try { local = normalize(JSON.parse(localStorage.getItem(STORAGE_KEY))); } catch (e) { return; }
+    const ids = new Set(data.tasks.map((t) => t.id));
+    const fresh = local.tasks.filter((t) => !ids.has(t.id));
+    if (fresh.length && confirm(`Bu tarayıcıda ortak listeye aktarılmamış ${fresh.length} görev var. Ortak listeye yüklensin mi?\n\n(İptal ederseniz görevler bu tarayıcıda kalır, daha sonra Yedek Al / Yedekten Yükle ile aktarabilirsiniz.)`)) {
+      mergeIncoming(local);
+      toast(`${fresh.length} görev ortak listeye yükleniyor…`);
+    }
+    localStorage.setItem(MIGRATED_KEY, nowIso());
+  }
+
+  // Adds tasks/list values from another data set without deleting anything.
+  function mergeIncoming(incoming) {
+    for (const key of LIST_KEYS) {
+      for (const v of incoming.lists[key]) {
+        if (data.lists[key].some((x) => sameText(x, v))) continue;
+        if (key === 'durum') data.lists.durum.splice(data.lists.durum.length - 1, 0, v);
+        else data.lists[key].push(v);
+      }
+    }
+    for (const t of incoming.tasks) {
+      const existing = data.tasks.find((x) => x.id === t.id);
+      if (existing) Object.assign(existing, t);
+      else data.tasks.push(t);
+    }
+    resetPinned();
+    persistCloudCache();
+    render();
+  }
+
+  function setCloudStatus(status, error = null) {
+    cloud.status = status;
+    cloud.error = error;
+    renderCloudStatus();
+  }
+
+  function renderCloudStatus() {
+    const el2 = $('#cloud-status');
+    const time = cloud.lastSyncAt ? new Date(cloud.lastSyncAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
+    const states = {
+      loading: ['⟳ Yükleniyor…', 'busy'],
+      saving: ['⟳ Kaydediliyor…', 'busy'],
+      saved: [`☁ Kaydedildi${time ? ` · ${time}` : ''}`, 'ok'],
+      offline: ['⚠ Çevrimdışı – bağlantı gelince kaydedilecek', 'warn'],
+      error: ['⚠ Kaydedilemedi – tekrar denenecek', 'warn'],
+    };
+    const [text, cls] = states[cloud.status];
+    el2.textContent = text;
+    el2.className = `cloud-status cloud-${cls}`;
+    el2.title = cloud.error || 'Veriler ortak veritabanına otomatik kaydedilir.';
+    renderBackupInfo();
+  }
+
+  function scheduleSync() {
+    if (!cloud.ready) return;
+    clearTimeout(cloud.timer);
+    setCloudStatus('saving');
+    cloud.timer = setTimeout(() => sync(), 500);
+  }
+
+  function sync({ pull = false } = {}) {
+    cloud.queue = cloud.queue.then(() => runSync(pull));
+    return cloud.queue;
+  }
+
+  async function runPull() {
+    const server = await cloud.store.fetchAll();
+    const firstLoad = !cloud.ready;
+    const changed = mergeServer(server);
+    cloud.ready = true;
+    persistCloudCache();
+    if (firstLoad) { render(); offerMigration(); } else if (changed) renderWhenIdle();
+  }
+
+  async function runSync(pull) {
+    if (!cloud.store || (!pull && !cloud.ready)) return;
+    clearTimeout(cloud.timer);
+    try {
+      if (pull) await runPull();
+      const ops = buildOps();
+      if (ops.length) {
+        setCloudStatus('saving');
+        await pushOps(ops);
+      }
+      cloud.lastSyncAt = nowIso();
+      persistCloudCache();
+      setCloudStatus('saved');
+    } catch (err) {
+      console.warn('Eşitleme hatası', err);
+      const offline = !navigator.onLine || err.code === 'network';
+      setCloudStatus(offline ? 'offline' : 'error', err.message);
+      if (!cloud.ready) {
+        $('#cloud-error').hidden = false;
+        $('#cloud-error').textContent = `Ortak veritabanına bağlanılamadı: ${err.message}`;
+      }
+      return;
+    }
+    $('#cloud-error').hidden = true;
+  }
+
+  const hasPendingChanges = () => !!(cloud && cloud.ready && (cloud.status === 'saving' || buildOps().length));
+
+  async function startCloud() {
+    document.body.classList.add('cloud-mode');
+    $('#cloud-bar').hidden = false;
+    $('#storage-note').textContent = 'Veriler ekibin ortak bulut veritabanında saklanır ve her değişiklik otomatik kaydedilir.';
+    try {
+      cloud.store = window.TaskCloud.createStore(config);
+    } catch (err) {
+      setCloudStatus('error', err.message);
+      $('#cloud-error').hidden = false;
+      $('#cloud-error').textContent = err.message;
+      return;
+    }
+    setCloudStatus('loading');
+    await sync({ pull: true });
+    setInterval(() => { if (document.visibilityState === 'visible') sync({ pull: true }); }, POLL_MS);
+    window.addEventListener('focus', () => sync({ pull: true }));
+    window.addEventListener('online', () => sync({ pull: true }));
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync({ pull: true }); });
+    document.addEventListener('focusout', () => setTimeout(() => { if (cloud.renderPending) renderWhenIdle(); }, 0));
+    ['task-dialog', 'settings-dialog'].forEach((id) => $(`#${id}`).addEventListener('close', () => { if (cloud.renderPending) renderWhenIdle(); }));
+    window.addEventListener('beforeunload', (e) => {
+      if (hasPendingChanges()) { e.preventDefault(); e.returnValue = ''; }
+    });
   }
 
   // ---------- Event wiring ----------
@@ -932,7 +1248,15 @@
 
     // Keep multiple open tabs in sync.
     window.addEventListener('storage', (e) => {
-      if (e.key === STORAGE_KEY) {
+      if (cloud && e.key === CLOUD_CACHE_KEY && e.newValue) {
+        const cache = loadCloudCache();
+        data = cache.data;
+        Object.assign(cloud, { remote: cache.remote, lastSyncAt: cache.lastSyncAt });
+        renderWhenIdle();
+        renderCloudStatus();
+        return;
+      }
+      if (!cloud && e.key === STORAGE_KEY) {
         data = load();
         render();
         if ($('#settings-dialog').open) renderSettings();
@@ -943,4 +1267,5 @@
 
   bindEvents();
   render();
+  if (cloud) startCloud();
 })();

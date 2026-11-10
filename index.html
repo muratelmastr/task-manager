@@ -17,6 +17,9 @@
       </div>
     </div>
     <div class="header-actions">
+      <div id="cloud-bar" class="cloud-bar" hidden>
+        <span id="cloud-status" class="cloud-status"></span>
+      </div>
       <button type="button" id="btn-export-xlsx" class="btn">Excel'e Aktar</button>
       <button type="button" id="btn-export-json" class="btn">Yedek Al (JSON)</button>
       <button type="button" id="btn-import-json" class="btn">Yedekten Yükle</button>
@@ -26,6 +29,7 @@
   </header>
 
   <main>
+    <p id="cloud-error" class="cloud-error" role="alert" hidden></p>
     <section class="toolbar" aria-label="Filtreler">
       <button type="button" id="btn-add" class="btn btn-primary">+ Yeni Görev</button>
       <input type="search" id="search" placeholder="Ara…" aria-label="Ara">
@@ -66,7 +70,7 @@
   </main>
 
   <footer class="app-footer">
-    <span>Veriler yalnızca bu tarayıcıda (localStorage) saklanır. Düzenli olarak <strong>Yedek Al</strong> ile yedekleyin.</span>
+    <span id="storage-note">Veriler yalnızca bu tarayıcıda (localStorage) saklanır. Düzenli olarak <strong>Yedek Al</strong> ile yedekleyin.</span>
     <span id="backup-info"></span>
   </footer>
 
@@ -86,7 +90,7 @@
         <button type="button" class="btn btn-link" data-close aria-label="Kapat">✕</button>
       </div>
       <label class="field">Görev
-        <input type="text" name="gorev" required placeholder="Görev açıklaması…">
+        <input type="text" name="gorev" required maxlength="255" placeholder="Görev açıklaması…">
       </label>
       <div class="field-grid">
         <label class="field">Alan <select name="alan"></select></label>
@@ -105,6 +109,8 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+  <script src="config.js"></script>
+  <script src="cloud.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
