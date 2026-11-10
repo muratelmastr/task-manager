@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'taskManager.v1';
+  const VIEW_KEY = 'taskManager.view';
   const DONE = 'Tamamlandı';
   const RED_DAYS = 3;
   const YELLOW_DAYS = 7;
@@ -52,6 +53,8 @@
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
   }
+
+  const formatDate = (iso) => parseLocalDate(iso).toLocaleDateString('tr-TR');
 
   function uniqueValues(values) {
     const out = [];
@@ -167,6 +170,8 @@
   save();
 
   const ui = {
+    view: localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list',
+    shownCount: 0,
     showCompleted: false,
     search: '',
     filters: { alan: '', sahip: '', durum: '' },
@@ -192,8 +197,8 @@
 
   // ---------- Filtering & sorting ----------
 
-  function matchesFilters(t) {
-    const showDone = ui.showCompleted || ui.filters.durum === DONE;
+  function matchesFilters(t, { includeDone = false } = {}) {
+    const showDone = includeDone || ui.showCompleted || ui.filters.durum === DONE;
     if (t.durum === DONE && !showDone) return false;
     for (const key of LIST_KEYS) {
       if (ui.filters[key] && t[key] !== ui.filters[key]) return false;
@@ -243,10 +248,23 @@
 
   function render() {
     renderFilterOptions();
-    renderTable();
+    renderView();
     renderSummary();
     renderSortIndicators();
     renderBackupInfo();
+  }
+
+  function renderView() {
+    const isBoard = ui.view === 'board';
+    $('#list-view').hidden = isBoard;
+    $('#board-view').hidden = !isBoard;
+    document.querySelectorAll('.view-btn').forEach((btn) => {
+      const active = btn.dataset.view === ui.view;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+    if (isBoard) renderBoard();
+    else renderTable();
   }
 
   function renderFilterOptions() {
@@ -264,14 +282,19 @@
     $('#search').value = ui.search;
   }
 
+  function fillOptions(select, key, value) {
+    select.replaceChildren();
+    if (key !== 'durum' || !value) select.append(el('option', { value: '', textContent: '— Seçiniz —' }));
+    for (const v of data.lists[key]) select.append(el('option', { value: v, textContent: v }));
+    if (value && !data.lists[key].includes(value)) {
+      select.append(el('option', { value, textContent: `${value} (listede yok)` }));
+    }
+    select.value = value || '';
+  }
+
   function buildSelect(key, task, onChange) {
     const select = el('select', { class: `cell-${key}`, title: LIST_LABELS[key], onchange: (e) => onChange(e.target.value) });
-    if (key !== 'durum' || !task.durum) select.append(el('option', { value: '', textContent: '— Seçiniz —' }));
-    for (const v of data.lists[key]) select.append(el('option', { value: v, textContent: v }));
-    if (task[key] && !data.lists[key].includes(task[key])) {
-      select.append(el('option', { value: task[key], textContent: `${task[key]} (listede yok)` }));
-    }
-    select.value = task[key] || '';
+    fillOptions(select, key, task[key]);
     return select;
   }
 
@@ -334,6 +357,7 @@
 
   function renderTable() {
     const rows = visibleTasks();
+    ui.shownCount = rows.length;
     $('#task-body').replaceChildren(...rows.map(buildRow));
     const empty = $('#empty-state');
     if (rows.length === 0) {
@@ -346,6 +370,167 @@
     }
   }
 
+  // ---------- Board view ----------
+
+  function buildCard(task) {
+    const { level, label } = dueInfo(task);
+    const classes = ['card'];
+    if (level) classes.push(`due-${level}`);
+    if (task.durum === DONE) classes.push('is-done');
+    if (ui.pinned.has(task.id)) classes.push('is-new');
+
+    const meta = el('div', { class: 'card-meta' },
+      el('span', { class: 'card-sahip', textContent: `👤 ${task.sahip || '—'}` }),
+      task.tamamlanmaTarihi
+        ? el('span', { class: 'card-due', textContent: `📅 ${formatDate(task.tamamlanmaTarihi)}${label && label !== '✓' ? ` · ${label}` : ''}` })
+        : null,
+    );
+
+    const card = el('article', {
+      class: classes.join(' '),
+      draggable: true,
+      tabIndex: 0,
+      title: 'Düzenlemek için tıklayın, durumunu değiştirmek için sürükleyin',
+      dataset: { id: task.id },
+      onclick: () => openTaskDialog(task),
+      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskDialog(task); } },
+      ondragstart: (e) => {
+        e.dataTransfer.setData('text/plain', task.id);
+        e.dataTransfer.effectAllowed = 'move';
+        card.classList.add('dragging');
+      },
+      ondragend: () => card.classList.remove('dragging'),
+    },
+    task.alan ? el('span', { class: 'card-alan', textContent: task.alan }) : null,
+    el('div', { class: 'card-title', textContent: task.gorev || '(İsimsiz görev)' }),
+    meta);
+    return card;
+  }
+
+  function buildColumn(status, tasks) {
+    const showDone = ui.showCompleted || ui.filters.durum === DONE;
+    const doneHidden = status === DONE && !showDone;
+    const cards = el('div', { class: 'board-cards' });
+    let count = tasks.length;
+
+    if (doneHidden) {
+      const hiddenTasks = data.tasks.filter((t) => t.durum === DONE && !ui.pinned.has(t.id) && matchesFilters(t, { includeDone: true }));
+      count += hiddenTasks.length;
+      cards.append(...tasks.map(buildCard));
+      if (hiddenTasks.length > 0) {
+        cards.append(el('p', { class: 'board-note' },
+          `${hiddenTasks.length} tamamlanan görev gizli. `,
+          el('button', {
+            type: 'button',
+            class: 'btn btn-link',
+            textContent: 'Göster',
+            onclick: () => { ui.showCompleted = true; render(); },
+          })));
+      }
+    } else {
+      cards.append(...tasks.map(buildCard));
+      if (tasks.length === 0) cards.append(el('p', { class: 'board-note', textContent: 'Görev yok' }));
+    }
+
+    const column = el('section', { class: 'board-column', dataset: { status } },
+      el('h3', {}, el('span', { textContent: status }), el('span', { class: 'count-badge', textContent: String(count) })),
+      cards);
+
+    column.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      column.classList.add('drag-over');
+    });
+    column.addEventListener('dragleave', (e) => {
+      if (!column.contains(e.relatedTarget)) column.classList.remove('drag-over');
+    });
+    column.addEventListener('drop', (e) => {
+      e.preventDefault();
+      column.classList.remove('drag-over');
+      moveTaskToStatus(e.dataTransfer.getData('text/plain'), status);
+    });
+    return column;
+  }
+
+  function renderBoard() {
+    const tasks = visibleTasks();
+    ui.shownCount = tasks.length;
+    const statuses = ui.filters.durum ? [ui.filters.durum] : data.lists.durum;
+    $('#board-view').replaceChildren(...statuses.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
+  }
+
+  function isHiddenWhenDone() {
+    return !ui.showCompleted && ui.filters.durum !== DONE;
+  }
+
+  function moveTaskToStatus(id, status) {
+    const task = data.tasks.find((t) => t.id === id);
+    if (!task || !applyChange(task, 'durum', status)) return;
+    save();
+    if (status === DONE && isHiddenWhenDone()) {
+      ui.pinned.delete(task.id);
+      toast('Görev tamamlandı ve gizlendi. Görmek için "Tamamlananları göster" seçeneğini işaretleyin.');
+    }
+    renderView();
+    renderSummary();
+    renderBackupInfo();
+  }
+
+  // ---------- Task dialog (board view) ----------
+
+  let editingTask = null;
+
+  function openTaskDialog(task) {
+    editingTask = task || null;
+    const draft = task || newTaskDraft();
+    const form = $('#task-form');
+    $('#task-dialog-title').textContent = task ? 'Görevi Düzenle' : 'Yeni Görev';
+    form.elements.gorev.value = draft.gorev;
+    for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key]);
+    form.elements.tamamlanmaTarihi.value = draft.tamamlanmaTarihi;
+    const del = $('#task-delete');
+    del.hidden = !task;
+    del.disabled = !!task && task.durum === DONE;
+    del.title = del.disabled ? 'Tamamlanan görevler silinemez' : 'Görevi sil';
+    $('#task-dialog').showModal();
+    form.elements.gorev.focus();
+  }
+
+  function saveTaskDialog(e) {
+    e.preventDefault();
+    const form = $('#task-form');
+    const gorev = form.elements.gorev.value.trim();
+    if (!gorev) {
+      alert('Görev açıklaması boş olamaz.');
+      form.elements.gorev.focus();
+      return;
+    }
+    const tarih = form.elements.tamamlanmaTarihi.value;
+    const values = {
+      gorev,
+      alan: form.elements.alan.value,
+      sahip: form.elements.sahip.value,
+      durum: form.elements.durum.value,
+      tamamlanmaTarihi: isIsoDate(tarih) ? tarih : '',
+    };
+    let task = editingTask;
+    if (task) {
+      for (const [field, value] of Object.entries(values)) applyChange(task, field, value);
+    } else {
+      task = { ...newTaskDraft(), ...values };
+      if (task.durum === DONE) task.completedAt = nowIso();
+      data.tasks.push(task);
+      if (task.durum !== DONE || !isHiddenWhenDone()) ui.pinned.add(task.id);
+    }
+    save();
+    $('#task-dialog').close();
+    if (task.durum === DONE && isHiddenWhenDone()) {
+      ui.pinned.delete(task.id);
+      toast('Görev tamamlandı ve gizlendi. Görmek için "Tamamlananları göster" seçeneğini işaretleyin.');
+    }
+    render();
+  }
+
   function renderSummary() {
     const open = data.tasks.filter((t) => t.durum !== DONE);
     const done = data.tasks.length - open.length;
@@ -356,7 +541,7 @@
       if (level === 'red') red += 1;
       else if (level === 'yellow') yellow += 1;
     }
-    const shown = $('#task-body').children.length;
+    const shown = ui.shownCount;
     $('#summary').replaceChildren(
       el('span', { textContent: `Gösterilen: ${shown}` }),
       el('span', { textContent: `Açık: ${open.length}` }),
@@ -391,19 +576,23 @@
 
   // ---------- Task actions ----------
 
-  function onFieldChange(task, field, value, tr) {
+  function applyChange(task, field, value) {
     const prev = task[field];
-    if (prev === value) return;
+    if (prev === value) return false;
     task[field] = value;
     task.updatedAt = nowIso();
     if (field === 'durum') {
       if (value === DONE && prev !== DONE) task.completedAt = nowIso();
       else if (value !== DONE) task.completedAt = null;
     }
+    return true;
+  }
+
+  function onFieldChange(task, field, value, tr) {
+    if (!applyChange(task, field, value)) return;
     save();
 
-    const hidesNow = field === 'durum' && value === DONE && !ui.showCompleted && ui.filters.durum !== DONE;
-    if (hidesNow) {
+    if (field === 'durum' && value === DONE && isHiddenWhenDone()) {
       ui.pinned.delete(task.id);
       renderTable();
       renderSummary();
@@ -415,9 +604,9 @@
     renderBackupInfo();
   }
 
-  function addTask() {
+  function newTaskDraft() {
     const ts = nowIso();
-    const task = {
+    return {
       id: uid(),
       alan: ui.filters.alan || '',
       gorev: '',
@@ -428,6 +617,14 @@
       updatedAt: ts,
       completedAt: null,
     };
+  }
+
+  function addTask() {
+    if (ui.view === 'board') {
+      openTaskDialog(null);
+      return;
+    }
+    const task = newTaskDraft();
     data.tasks.push(task);
     ui.pinned.add(task.id);
     save();
@@ -438,14 +635,15 @@
   function deleteTask(task) {
     if (task.durum === DONE) {
       alert('Tamamlanan görevler silinemez.');
-      return;
+      return false;
     }
     const name = task.gorev ? `"${task.gorev}"` : 'Bu (isimsiz)';
-    if (!confirm(`${name} görevi silinsin mi? Bu işlem geri alınamaz.`)) return;
+    if (!confirm(`${name} görevi silinsin mi? Bu işlem geri alınamaz.`)) return false;
     data.tasks = data.tasks.filter((t) => t.id !== task.id);
     ui.pinned.delete(task.id);
     save();
     render();
+    return true;
   }
 
   // ---------- Settings (parametric lists) ----------
@@ -657,10 +855,29 @@
   function bindEvents() {
     $('#btn-add').addEventListener('click', addTask);
 
+    document.querySelectorAll('.view-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (ui.view === btn.dataset.view) return;
+        ui.view = btn.dataset.view;
+        localStorage.setItem(VIEW_KEY, ui.view);
+        resetPinned();
+        renderView();
+        renderSummary();
+      });
+    });
+
+    $('#task-form').addEventListener('submit', saveTaskDialog);
+    document.querySelectorAll('#task-dialog [data-close]').forEach((btn) => {
+      btn.addEventListener('click', () => $('#task-dialog').close());
+    });
+    $('#task-delete').addEventListener('click', () => {
+      if (editingTask && deleteTask(editingTask)) $('#task-dialog').close();
+    });
+
     $('#search').addEventListener('input', (e) => {
       ui.search = e.target.value;
       resetPinned();
-      renderTable();
+      renderView();
       renderSummary();
     });
 
@@ -668,7 +885,7 @@
       select.addEventListener('change', (e) => {
         ui.filters[e.target.dataset.filter] = e.target.value;
         resetPinned();
-        renderTable();
+        renderView();
         renderSummary();
       });
     });
@@ -676,7 +893,7 @@
     $('#show-completed').addEventListener('change', (e) => {
       ui.showCompleted = e.target.checked;
       resetPinned();
-      renderTable();
+      renderView();
       renderSummary();
     });
 
@@ -694,7 +911,7 @@
         if (ui.sort.key === key) ui.sort.dir *= -1;
         else ui.sort = { key, dir: 1 };
         resetPinned();
-        renderTable();
+        renderView();
         renderSortIndicators();
       });
     });
@@ -719,6 +936,7 @@
         data = load();
         render();
         if ($('#settings-dialog').open) renderSettings();
+        if ($('#task-dialog').open) $('#task-dialog').close();
       }
     });
   }
