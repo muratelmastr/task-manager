@@ -287,9 +287,16 @@ dialog::backdrop { background: rgba(15, 23, 42, .35); }
 }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 20px; }
+.dialog-actions[hidden] { display: none; }
 .dialog-actions .spacer { flex: 1; }
 .btn-danger { color: var(--red-text); border-color: var(--red-border); }
 .btn-danger:hover { background: var(--red-bg); }
+
+#btn-sync.sync-ok { border-color: #86c79a; background: #e7f6ec; color: #17663a; }
+#btn-sync.sync-warn { border-color: var(--yellow-border); background: var(--yellow-bg); color: var(--yellow-text); font-weight: 600; }
+#sync-dialog { width: min(620px, 95vw); }
+.sync-state { font-weight: 600; }
+.warn-text { color: var(--red-text); }
 
 .toast {
   position: fixed;

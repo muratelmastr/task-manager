@@ -17,6 +17,7 @@
       </div>
     </div>
     <div class="header-actions">
+      <button type="button" id="btn-sync" class="btn sync-warn">💾 Dosyaya otomatik kaydet</button>
       <button type="button" id="btn-export-xlsx" class="btn">Excel'e Aktar</button>
       <button type="button" id="btn-export-json" class="btn">Yedek Al (JSON)</button>
       <button type="button" id="btn-import-json" class="btn">Yedekten Yükle</button>
@@ -66,7 +67,7 @@
   </main>
 
   <footer class="app-footer">
-    <span>Veriler yalnızca bu tarayıcıda (localStorage) saklanır. Düzenli olarak <strong>Yedek Al</strong> ile yedekleyin.</span>
+    <span>Veriler bu tarayıcıda saklanır. Kaybolmaması için <strong>💾 Dosyaya otomatik kaydet</strong> ile bir dosyaya bağlayın veya düzenli olarak <strong>Yedek Al</strong> kullanın.</span>
     <span id="backup-info"></span>
   </footer>
 
@@ -101,6 +102,23 @@
         <button type="submit" class="btn btn-primary">Kaydet</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="sync-dialog">
+    <form method="dialog" class="dialog-header">
+      <h2>Dosyaya Otomatik Kayıt</h2>
+      <button class="btn btn-link" value="close" aria-label="Kapat">✕</button>
+    </form>
+    <p class="hint">Sayfayı bilgisayarınızdaki bir JSON dosyasına bağlayın; her değişiklik otomatik olarak bu dosyaya yazılır ve sayfa açıldığında dosyadan yüklenir. Dosyayı <strong>OneDrive</strong> klasörüne koyarsanız bulutta yedeklenir, sürüm geçmişi tutulur ve diğer bilgisayarlarınızdan da aynı dosyayı açabilirsiniz.</p>
+    <p id="sync-state" class="sync-state"></p>
+    <p id="sync-unsupported" class="hint warn-text" hidden>Bu tarayıcı dosyaya otomatik kaydı desteklemiyor. Microsoft Edge veya Google Chrome kullanın ya da düzenli olarak <strong>Yedek Al (JSON)</strong> ile yedekleyin.</p>
+    <div id="sync-actions" class="dialog-actions">
+      <button type="button" id="sync-create" class="btn btn-primary">Yeni dosya oluştur</button>
+      <button type="button" id="sync-open" class="btn">Mevcut dosyayı aç</button>
+      <button type="button" id="sync-reconnect" class="btn" hidden>Yeniden bağlan</button>
+      <span class="spacer"></span>
+      <button type="button" id="sync-unlink" class="btn btn-danger" hidden>Bağlantıyı kaldır</button>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

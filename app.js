@@ -138,7 +138,7 @@
     }
 
     const meta = raw.meta && typeof raw.meta === 'object' ? raw.meta : {};
-    return { version: 1, lists, tasks, meta: { lastBackupAt: str(meta.lastBackupAt) || null } };
+    return { version: 1, lists, tasks, meta: { lastBackupAt: str(meta.lastBackupAt) || null, savedAt: str(meta.savedAt) || null } };
   }
 
   function load() {
@@ -154,20 +154,34 @@
     }
   }
 
-  function save() {
+  // Every user change bumps meta.savedAt and is mirrored to the linked file (if any).
+  function save({ touch = true } = {}) {
+    if (touch) data.meta.savedAt = nowIso();
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (err) {
       alert(`Veriler kaydedilemedi: ${err.message}`);
     }
+    if (touch) scheduleFileWrite();
   }
 
   function firstOpenStatus(lists = data.lists) {
     return lists.durum.find((d) => d !== DONE) || DONE;
   }
 
+  // File auto-save state (File System Access API). status: unsupported | none | prompt | connected | error
+  const fileSync = {
+    supported: typeof window.showSaveFilePicker === 'function' && typeof window.showOpenFilePicker === 'function',
+    handle: null,
+    status: 'none',
+    lastWriteAt: null,
+    writeTimer: null,
+    writing: Promise.resolve(),
+  };
+  if (!fileSync.supported) fileSync.status = 'unsupported';
+
   let data = load();
-  save();
+  save({ touch: false });
 
   const ui = {
     view: localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list',
@@ -564,7 +578,10 @@
     const info = $('#backup-info');
     const last = data.meta.lastBackupAt;
     let warn = false;
-    if (last) {
+    if (fileSync.status === 'connected') {
+      const at = fileSync.lastWriteAt ? ` · son kayıt ${formatDateTime(fileSync.lastWriteAt)}` : '';
+      info.textContent = `Otomatik kayıt: ${fileSync.handle.name}${at}`;
+    } else if (last) {
       info.textContent = `Son yedek: ${formatDateTime(last)}`;
       warn = (Date.now() - new Date(last).getTime()) / 86400000 > BACKUP_WARN_DAYS && data.tasks.length > 0;
     } else {
@@ -850,6 +867,245 @@
     XLSX.writeFile(wb, `gorevler-${todayIso()}.xlsx`);
   }
 
+  // ---------- File auto-save (File System Access API) ----------
+
+  const SYNC_KEY = 'taskManager.fileSyncedAt'; // meta.savedAt of the version last known to be in the file
+  const IDB_NAME = 'taskManager';
+  const IDB_STORE = 'kv';
+  const HANDLE_KEY = 'fileHandle';
+
+  function idb(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open(IDB_NAME, 1);
+      open.onupgradeneeded = () => open.result.createObjectStore(IDB_STORE);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction(IDB_STORE, mode);
+        const req = fn(tx.objectStore(IDB_STORE));
+        tx.oncomplete = () => { db.close(); resolve(req.result); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+      };
+    });
+  }
+  const idbGet = (key) => idb('readonly', (s) => s.get(key));
+  const idbSet = (key, value) => idb('readwrite', (s) => s.put(value, key));
+  const idbDel = (key) => idb('readwrite', (s) => s.delete(key));
+
+  const getSynced = () => localStorage.getItem(SYNC_KEY) || null;
+  const setSynced = (v) => { if (v) localStorage.setItem(SYNC_KEY, v); else localStorage.removeItem(SYNC_KEY); };
+
+  function setFileStatus(status) {
+    fileSync.status = status;
+    renderSyncStatus();
+    renderBackupInfo();
+  }
+
+  function renderSyncStatus() {
+    const btn = $('#btn-sync');
+    const name = fileSync.handle ? fileSync.handle.name : '';
+    const states = {
+      unsupported: ['⚠ Otomatik kayıt yok', 'warn', 'Bu tarayıcı dosyaya otomatik kaydı desteklemiyor. Edge veya Chrome kullanın ya da düzenli olarak Yedek Al kullanın.'],
+      none: ['💾 Dosyaya otomatik kaydet', 'warn', 'Veriler şu an yalnızca tarayıcıda. Kaybolmaması için bir dosyaya bağlayın.'],
+      prompt: [`⚠ ${name} – yeniden bağlan`, 'warn', 'Dosyaya yazmak için izin gerekiyor. Tıklayın.'],
+      connected: [`✓ ${name}`, 'ok', `Değişiklikler otomatik olarak "${name}" dosyasına kaydediliyor.`],
+      error: [`⚠ ${name} – kayıt hatası`, 'warn', 'Dosyaya yazılamadı. Tıklayıp yeniden bağlanın.'],
+    };
+    const [text, cls, title] = states[fileSync.status];
+    btn.textContent = text;
+    btn.title = title;
+    btn.classList.toggle('sync-ok', cls === 'ok');
+    btn.classList.toggle('sync-warn', cls === 'warn');
+  }
+
+  function scheduleFileWrite() {
+    if (fileSync.status !== 'connected') return;
+    clearTimeout(fileSync.writeTimer);
+    fileSync.writeTimer = setTimeout(() => { writeFile(); }, 400);
+  }
+
+  function writeFile() {
+    clearTimeout(fileSync.writeTimer);
+    const snapshot = JSON.stringify(data, null, 2);
+    const savedAt = data.meta.savedAt;
+    fileSync.writing = fileSync.writing.then(async () => {
+      if (!fileSync.handle) return;
+      try {
+        const w = await fileSync.handle.createWritable();
+        await w.write(new Blob([snapshot], { type: 'application/json' }));
+        await w.close();
+        setSynced(savedAt);
+        fileSync.lastWriteAt = nowIso();
+        setFileStatus('connected');
+      } catch (err) {
+        console.warn('Dosyaya yazılamadı', err);
+        setFileStatus('error');
+      }
+    });
+    return fileSync.writing;
+  }
+
+  async function readFile() {
+    const file = await fileSync.handle.getFile();
+    const text = (await file.text()).trim();
+    if (!text) return null;
+    return normalize(JSON.parse(text));
+  }
+
+  function adopt(incoming) {
+    data = incoming;
+    resetPinned();
+    if (!data.meta.savedAt) data.meta.savedAt = nowIso();
+    save({ touch: false });
+    setSynced(data.meta.savedAt);
+    render();
+    if ($('#settings-dialog').open) renderSettings();
+    if ($('#task-dialog').open) $('#task-dialog').close();
+  }
+
+  // Decide whether the file or the browser copy is current; ask only on a real conflict.
+  async function reconcile({ interactive }) {
+    let fileData;
+    try {
+      fileData = await readFile();
+    } catch (err) {
+      if (interactive) alert(`Dosya okunamadı: ${err.message}`);
+      setFileStatus('error');
+      return;
+    }
+    fileSync.status = 'connected';
+    if (!fileData) { await writeFile(); return; }
+
+    const synced = getSynced();
+    const localAt = data.meta.savedAt;
+    const fileAt = fileData.meta.savedAt;
+
+    if (fileAt && fileAt === localAt) {
+      setSynced(fileAt);
+    } else if (synced && localAt === synced) {
+      adopt(fileData); // changed elsewhere (e.g. another computer via OneDrive)
+      if (interactive) toast('Dosyadaki güncel veriler yüklendi.');
+    } else if (synced && fileAt === synced) {
+      await writeFile(); // browser has newer changes
+      return;
+    } else if (data.tasks.length === 0) {
+      adopt(fileData);
+    } else if (fileData.tasks.length === 0) {
+      await writeFile();
+      return;
+    } else {
+      const msg = 'Dosyadaki veriler ile tarayıcıdaki veriler farklı.\n\n'
+        + `Dosya: ${fileData.tasks.length} görev (son kayıt: ${formatDateTime(fileAt) || 'bilinmiyor'})\n`
+        + `Tarayıcı: ${data.tasks.length} görev (son kayıt: ${formatDateTime(localAt) || 'bilinmiyor'})\n\n`
+        + 'Tamam → dosyadakileri yükle\nİptal → tarayıcıdakileri dosyaya yaz';
+      if (confirm(msg)) adopt(fileData);
+      else { await writeFile(); return; }
+    }
+    fileSync.lastWriteAt = fileSync.lastWriteAt || fileAt;
+    setFileStatus('connected');
+  }
+
+  async function linkHandle(handle) {
+    fileSync.handle = handle;
+    setSynced(null);
+    try {
+      if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') {
+        setFileStatus('prompt');
+        await idbSet(HANDLE_KEY, handle);
+        return;
+      }
+    } catch (err) {
+      console.warn(err);
+    }
+    await idbSet(HANDLE_KEY, handle);
+    await reconcile({ interactive: true });
+    if (fileSync.status === 'connected') toast(`Veriler artık "${handle.name}" dosyasına otomatik kaydediliyor.`);
+  }
+
+  const JSON_TYPES = [{ description: 'Görev verisi (JSON)', accept: { 'application/json': ['.json'] } }];
+
+  async function createFileLink() {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: 'gorevler.json', types: JSON_TYPES });
+      await linkHandle(handle);
+    } catch (err) {
+      if (err.name !== 'AbortError') alert(`Dosya oluşturulamadı: ${err.message}`);
+    }
+  }
+
+  async function openFileLink() {
+    try {
+      const [handle] = await window.showOpenFilePicker({ types: JSON_TYPES, multiple: false });
+      await linkHandle(handle);
+    } catch (err) {
+      if (err.name !== 'AbortError') alert(`Dosya açılamadı: ${err.message}`);
+    }
+  }
+
+  async function reconnectFile() {
+    if (!fileSync.handle) return;
+    try {
+      if ((await fileSync.handle.requestPermission({ mode: 'readwrite' })) === 'granted') {
+        await reconcile({ interactive: true });
+      }
+    } catch (err) {
+      alert(`Dosyaya bağlanılamadı: ${err.message}. Dosya taşınmış veya silinmiş olabilir; yeniden seçin.`);
+      setFileStatus('error');
+    }
+  }
+
+  async function unlinkFile() {
+    if (!confirm('Dosya bağlantısı kaldırılsın mı? Veriler tarayıcıda kalır, dosya silinmez.')) return;
+    fileSync.handle = null;
+    fileSync.lastWriteAt = null;
+    setSynced(null);
+    await idbDel(HANDLE_KEY);
+    setFileStatus('none');
+    renderSyncDialog();
+  }
+
+  function renderSyncDialog() {
+    const linked = !!fileSync.handle;
+    $('#sync-unsupported').hidden = fileSync.supported;
+    $('#sync-actions').hidden = !fileSync.supported;
+    const state = $('#sync-state');
+    if (!fileSync.supported) state.textContent = '';
+    else if (!linked) state.textContent = 'Bağlı dosya yok. Veriler yalnızca bu tarayıcıda.';
+    else if (fileSync.status === 'connected') state.textContent = `Bağlı dosya: ${fileSync.handle.name}`;
+    else state.textContent = `Bağlı dosya: ${fileSync.handle.name} (yazma izni gerekiyor)`;
+    $('#sync-reconnect').hidden = !linked || fileSync.status === 'connected';
+    $('#sync-unlink').hidden = !linked;
+  }
+
+  async function initFileSync() {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    if (!fileSync.supported) { renderSyncStatus(); return; }
+    let handle;
+    try { handle = await idbGet(HANDLE_KEY); } catch (err) { console.warn(err); }
+    if (!handle) { setFileStatus('none'); return; }
+    fileSync.handle = handle;
+    let perm = 'prompt';
+    try { perm = await handle.queryPermission({ mode: 'readwrite' }); } catch (err) { console.warn(err); }
+    if (perm === 'granted') await reconcile({ interactive: false });
+    else setFileStatus('prompt');
+  }
+
+  // Pick up changes made to the file elsewhere when the user comes back to the tab.
+  async function checkFileOnFocus() {
+    if (fileSync.status !== 'connected' || !fileSync.handle) return;
+    await fileSync.writing;
+    try {
+      const fileData = await readFile();
+      const synced = getSynced();
+      if (fileData && fileData.meta.savedAt && fileData.meta.savedAt !== synced && data.meta.savedAt === synced) {
+        adopt(fileData);
+        toast('Dosyadaki güncel veriler yüklendi.');
+      }
+    } catch (err) {
+      console.warn(err);
+    }
+  }
+
   // ---------- Event wiring ----------
 
   function bindEvents() {
@@ -939,8 +1195,30 @@
         if ($('#task-dialog').open) $('#task-dialog').close();
       }
     });
+
+    $('#btn-sync').addEventListener('click', () => {
+      if (fileSync.handle && (fileSync.status === 'prompt' || fileSync.status === 'error')) {
+        reconnectFile();
+        return;
+      }
+      renderSyncDialog();
+      $('#sync-dialog').showModal();
+    });
+    const closeSyncThen = (fn) => async () => { $('#sync-dialog').close(); await fn(); };
+    $('#sync-create').addEventListener('click', closeSyncThen(createFileLink));
+    $('#sync-open').addEventListener('click', closeSyncThen(openFileLink));
+    $('#sync-reconnect').addEventListener('click', closeSyncThen(reconnectFile));
+    $('#sync-unlink').addEventListener('click', unlinkFile);
+
+    window.addEventListener('focus', checkFileOnFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && fileSync.writeTimer && fileSync.status === 'connected') writeFile();
+      else if (document.visibilityState === 'visible') checkFileOnFocus();
+    });
   }
 
   bindEvents();
   render();
+  renderSyncStatus();
+  initFileSync();
 })();
