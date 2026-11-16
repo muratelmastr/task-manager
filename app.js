@@ -73,6 +73,7 @@
       if (k === 'class') node.className = v;
       else if (k === 'dataset') Object.assign(node.dataset, v);
       else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+      else if ((k.startsWith('aria-') || k === 'role') && v !== undefined && v !== null && v !== false) node.setAttribute(k, v);
       else if (v !== undefined && v !== null && v !== false) node[k] = v;
     }
     for (const c of children) if (c !== null && c !== undefined) node.append(c);
@@ -298,6 +299,7 @@
     renderSummary();
     renderSortIndicators();
     renderBackupInfo();
+    updateFilterUi();
   }
 
   function renderView() {
@@ -410,7 +412,7 @@
     if (rows.length === 0) {
       empty.hidden = false;
       empty.textContent = data.tasks.length === 0
-        ? 'Henüz görev yok. "+ Yeni Görev" ile ekleyebilirsiniz.'
+        ? 'Henüz görev yok. "Yeni Görev" ile ekleyebilirsiniz.'
         : 'Filtrelere uyan görev bulunamadı.';
     } else {
       empty.hidden = true;
@@ -589,13 +591,29 @@
       else if (level === 'yellow') yellow += 1;
     }
     const shown = ui.shownCount;
+    const stat = (value, label, extra = {}) => el('span', { class: `stat ${extra.class || ''}`.trim(), title: extra.title || '' },
+      extra.dot ? el('span', { class: 'status-dot', 'aria-hidden': 'true' }) : null,
+      el('span', { class: 'stat-value', textContent: String(value) }),
+      el('span', { class: 'stat-label', textContent: label }),
+      extra.hint ? el('span', { class: 'stat-hint', textContent: extra.hint }) : null);
     $('#summary').replaceChildren(
-      el('span', { textContent: `Gösterilen: ${shown}` }),
-      el('span', { textContent: `Açık: ${open.length}` }),
-      el('span', { textContent: `Tamamlanan: ${done}` }),
-      el('span', { class: 'count-red', textContent: `Kritik: ${red}` }),
-      el('span', { class: 'count-yellow', textContent: `Yaklaşan: ${yellow}` }),
+      stat(shown, 'gösterilen'),
+      stat(open.length, 'açık'),
+      stat(done, 'tamamlanan'),
+      stat(red, 'kritik', { class: `count-red${red ? '' : ' is-zero'}`, dot: true, hint: '3 günden az / gecikmiş', title: 'Tamamlanma tarihine 3 günden az kalan veya geciken açık görevler (kırmızı)' }),
+      stat(yellow, 'yaklaşan', { class: `count-yellow${yellow ? '' : ' is-zero'}`, dot: true, hint: '1 haftadan az', title: 'Tamamlanma tarihine 1 haftadan az kalan açık görevler (sarı)' }),
     );
+  }
+
+  function hasActiveFilters() {
+    return !!(ui.search.trim() || ui.showCompleted || LIST_KEYS.some((k) => ui.filters[k]));
+  }
+
+  function updateFilterUi() {
+    for (const key of LIST_KEYS) {
+      $(`#filter-${key}`).closest('.filter-control').classList.toggle('is-active', !!ui.filters[key]);
+    }
+    $('#btn-clear-filters').hidden = !hasActiveFilters();
   }
 
   function renderSortIndicators() {
@@ -1079,11 +1097,11 @@
     const el2 = $('#cloud-status');
     const time = cloud.lastSyncAt ? new Date(cloud.lastSyncAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
     const states = {
-      loading: ['⟳ Yükleniyor…', 'busy'],
-      saving: ['⟳ Kaydediliyor…', 'busy'],
-      saved: [`☁ Kaydedildi${time ? ` · ${time}` : ''}`, 'ok'],
-      offline: ['⚠ Çevrimdışı – bağlantı gelince kaydedilecek', 'warn'],
-      error: ['⚠ Kaydedilemedi – tekrar denenecek', 'warn'],
+      loading: ['Yükleniyor…', 'busy'],
+      saving: ['Kaydediliyor…', 'busy'],
+      saved: [`Kaydedildi${time ? ` · ${time}` : ''}`, 'ok'],
+      offline: ['Çevrimdışı – bağlantı gelince kaydedilecek', 'warn'],
+      error: ['Kaydedilemedi – tekrar denenecek', 'warn'],
     };
     const [text, cls] = states[cloud.status];
     el2.textContent = text;
@@ -1168,6 +1186,58 @@
 
   // ---------- Event wiring ----------
 
+  function setupDataMenu() {
+    const button = $('#btn-data-menu');
+    const list = $('#data-menu-list');
+    const items = () => [...list.querySelectorAll('[role="menuitem"]')];
+    const isOpen = () => !list.hidden;
+
+    function open(focusIndex = 0) {
+      list.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      const all = items();
+      all[(focusIndex + all.length) % all.length].focus();
+    }
+    function close(returnFocus = false) {
+      if (!isOpen()) return;
+      list.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      if (returnFocus) button.focus();
+    }
+
+    button.addEventListener('click', () => (isOpen() ? close() : open()));
+    button.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); open(0); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); open(-1); }
+    });
+    list.addEventListener('click', (e) => { if (e.target.closest('[role="menuitem"]')) close(true); });
+    list.addEventListener('keydown', (e) => {
+      const all = items();
+      const idx = all.indexOf(document.activeElement);
+      const moves = { ArrowDown: idx + 1, ArrowUp: idx - 1, Home: 0, End: all.length - 1 };
+      if (e.key in moves) {
+        e.preventDefault();
+        all[(moves[e.key] + all.length) % all.length].focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close(true);
+      } else if (e.key === 'Tab') {
+        close();
+      }
+    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('#data-menu')) close(); });
+  }
+
+  function setupHeader() {
+    const header = $('#app-header');
+    const onScroll = () => header.classList.toggle('is-scrolled', window.scrollY > 4);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    // Sticky table headers sit right below the (wrapping) app header.
+    const setHeight = () => document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`);
+    if (window.ResizeObserver) new ResizeObserver(setHeight).observe(header);
+    setHeight();
+  }
   function bindEvents() {
     $('#btn-add').addEventListener('click', addTask);
 
@@ -1195,6 +1265,7 @@
       resetPinned();
       renderView();
       renderSummary();
+      updateFilterUi();
     });
 
     document.querySelectorAll('select[data-filter]').forEach((select) => {
@@ -1203,6 +1274,7 @@
         resetPinned();
         renderView();
         renderSummary();
+        updateFilterUi();
       });
     });
 
@@ -1211,6 +1283,7 @@
       resetPinned();
       renderView();
       renderSummary();
+      updateFilterUi();
     });
 
     $('#btn-clear-filters').addEventListener('click', () => {
@@ -1219,6 +1292,7 @@
       ui.showCompleted = false;
       resetPinned();
       render();
+      $('#search').focus();
     });
 
     document.querySelectorAll('th[data-sort]').forEach((th) => {
@@ -1245,6 +1319,8 @@
       if (file) importJson(file);
       e.target.value = '';
     });
+    setupDataMenu();
+    setupHeader();
 
     // Keep multiple open tabs in sync.
     window.addEventListener('storage', (e) => {

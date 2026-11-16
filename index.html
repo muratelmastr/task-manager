@@ -34,44 +34,56 @@
     <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></symbol>
   </svg>
 
-  <header class="app-header">
-    <div class="header-left">
-      <h1>Ekip Görev Takibi</h1>
+  <header class="app-header" id="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-logo"/></svg></span>
+        <h1>Ekip Görev Takibi</h1>
+      </div>
       <div class="view-toggle" role="group" aria-label="Görünüm">
-        <button type="button" class="view-btn" data-view="list" aria-pressed="true">☰ Liste</button>
-        <button type="button" class="view-btn" data-view="board" aria-pressed="false">▦ Board</button>
+        <button type="button" class="view-btn" data-view="list" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span>Liste</span></button>
+        <button type="button" class="view-btn" data-view="board" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-board"/></svg><span>Board</span></button>
       </div>
-    </div>
-    <div class="header-actions">
-      <div id="cloud-bar" class="cloud-bar" hidden>
-        <span id="cloud-status" class="cloud-status"></span>
+      <div class="header-actions">
+        <div id="cloud-bar" class="cloud-bar" hidden>
+          <span id="cloud-status" class="cloud-status" role="status"></span>
+        </div>
+        <div class="menu" id="data-menu">
+          <button type="button" id="btn-data-menu" class="btn btn-ghost" aria-haspopup="menu" aria-expanded="false" aria-controls="data-menu-list" title="Dışa aktar / yedekten yükle">
+            <svg class="icon" aria-hidden="true"><use href="#i-database"/></svg><span class="btn-label">Veri</span><svg class="icon icon-sm menu-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div id="data-menu-list" class="menu-list" role="menu" aria-labelledby="btn-data-menu" hidden>
+            <button type="button" role="menuitem" id="btn-export-xlsx" class="menu-item" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-sheet"/></svg>Excel'e Aktar</button>
+            <button type="button" role="menuitem" id="btn-export-json" class="menu-item" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Yedek Al (JSON)</button>
+            <div class="menu-separator" role="separator"></div>
+            <button type="button" role="menuitem" id="btn-import-json" class="menu-item" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Yedekten Yükle</button>
+          </div>
+        </div>
+        <button type="button" id="btn-settings" class="btn btn-ghost" title="Ayarlar"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span class="btn-label">Ayarlar</span></button>
+        <input type="file" id="file-import" accept=".json,application/json" hidden>
       </div>
-      <button type="button" id="btn-export-xlsx" class="btn">Excel'e Aktar</button>
-      <button type="button" id="btn-export-json" class="btn">Yedek Al (JSON)</button>
-      <button type="button" id="btn-import-json" class="btn">Yedekten Yükle</button>
-      <button type="button" id="btn-settings" class="btn">⚙ Ayarlar</button>
-      <input type="file" id="file-import" accept=".json,application/json" hidden>
     </div>
   </header>
 
   <main>
     <p id="cloud-error" class="cloud-error" role="alert" hidden></p>
     <section class="toolbar" aria-label="Filtreler">
-      <button type="button" id="btn-add" class="btn btn-primary">+ Yeni Görev</button>
-      <input type="search" id="search" placeholder="Ara…" aria-label="Ara">
-      <label>Alan <select id="filter-alan" data-filter="alan"></select></label>
-      <label>Sahip <select id="filter-sahip" data-filter="sahip"></select></label>
-      <label>Durum <select id="filter-durum" data-filter="durum"></select></label>
-      <label class="checkbox"><input type="checkbox" id="show-completed"> Tamamlananları göster</label>
-      <button type="button" id="btn-clear-filters" class="btn btn-link">Filtreleri temizle</button>
+      <div class="toolbar-filters">
+        <div class="search-field">
+          <svg class="icon search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+          <input type="search" id="search" class="input" placeholder="Görev ara…" aria-label="Görev ara" autocomplete="off">
+        </div>
+        <label class="filter-control"><span class="filter-label">Alan</span><select id="filter-alan" data-filter="alan"></select></label>
+        <label class="filter-control"><span class="filter-label">Sahip</span><select id="filter-sahip" data-filter="sahip"></select></label>
+        <label class="filter-control"><span class="filter-label">Durum</span><select id="filter-durum" data-filter="durum"></select></label>
+        <label class="switch"><input type="checkbox" id="show-completed"><span class="switch-track" aria-hidden="true"></span><span>Tamamlananları göster</span></label>
+        <button type="button" id="btn-clear-filters" class="btn btn-link" hidden><svg class="icon icon-sm" aria-hidden="true"><use href="#i-x"/></svg>Filtreleri temizle</button>
+      </div>
+      <button type="button" id="btn-add" class="btn btn-primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Yeni Görev</button>
     </section>
 
-    <section class="info-bar">
+    <section class="summary-bar" aria-label="Özet">
       <div id="summary" class="summary"></div>
-      <div class="legend">
-        <span class="legend-item"><span class="swatch swatch-red"></span>3 günden az kaldı / gecikti</span>
-        <span class="legend-item"><span class="swatch swatch-yellow"></span>1 haftadan az kaldı</span>
-      </div>
     </section>
 
     <div id="list-view" class="table-wrap">
