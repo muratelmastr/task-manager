@@ -528,15 +528,19 @@
 
   function buildCard(task) {
     const { level, label } = dueInfo(task);
+    const done = task.durum === DONE;
     const classes = ['card'];
     if (level) classes.push(`due-${level}`);
-    if (task.durum === DONE) classes.push('is-done');
+    if (done) classes.push('is-done');
     if (ui.pinned.has(task.id)) classes.push('is-new');
 
+    const badgeCls = level === 'red' ? 'badge-danger' : level === 'yellow' ? 'badge-warning' : '';
     const meta = el('div', { class: 'card-meta' },
-      el('span', { class: 'card-sahip', textContent: `👤 ${task.sahip || '—'}` }),
+      el('span', { class: `card-sahip${task.sahip ? '' : ' is-empty'}` }, buildAvatar(task.sahip, 'avatar-sm'), task.sahip || 'Atanmamış'),
       task.tamamlanmaTarihi
-        ? el('span', { class: 'card-due', textContent: `📅 ${formatDate(task.tamamlanmaTarihi)}${label && label !== '✓' ? ` · ${label}` : ''}` })
+        ? el('span', { class: 'card-due' },
+          el('span', { class: 'card-date' }, icon('calendar', 'icon-sm'), formatDate(task.tamamlanmaTarihi)),
+          label && !done ? el('span', { class: `badge ${badgeCls}`.trim(), textContent: label }) : null)
         : null,
     );
 
@@ -545,6 +549,7 @@
       draggable: true,
       tabIndex: 0,
       title: 'Düzenlemek için tıklayın, durumunu değiştirmek için sürükleyin',
+      'aria-label': `${task.gorev || 'İsimsiz görev'}${task.sahip ? `, ${task.sahip}` : ''}${label && !done ? `, ${label}` : ''}`,
       dataset: { id: task.id },
       onclick: () => openTaskDialog(task),
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskDialog(task); } },
@@ -552,13 +557,21 @@
         e.dataTransfer.setData('text/plain', task.id);
         e.dataTransfer.effectAllowed = 'move';
         card.classList.add('dragging');
+        document.body.classList.add('is-dragging');
       },
-      ondragend: () => card.classList.remove('dragging'),
+      ondragend: () => { card.classList.remove('dragging'); document.body.classList.remove('is-dragging'); },
     },
-    task.alan ? el('span', { class: 'card-alan', textContent: task.alan }) : null,
-    el('div', { class: 'card-title', textContent: task.gorev || '(İsimsiz görev)' }),
+    task.alan ? el('span', { class: `tag card-alan tone-${toneFor('alan', task.alan)}`, textContent: task.alan }) : null,
+    el('div', { class: `card-title${task.gorev ? '' : ' is-empty'}`, textContent: task.gorev || '(İsimsiz görev)' }),
     meta);
     return card;
+  }
+
+  function buildColumnHeader(status, count) {
+    return el('h3', { class: 'board-column-header' },
+      el('span', { class: `status-dot tone-${toneFor('durum', status)}`, 'aria-hidden': 'true' }),
+      el('span', { class: 'board-column-title', textContent: status }),
+      el('span', { class: 'count-badge', textContent: String(count) }));
   }
 
   function buildColumn(status, tasks) {
@@ -567,27 +580,26 @@
     const cards = el('div', { class: 'board-cards' });
     let count = tasks.length;
 
+    cards.append(...tasks.map(buildCard));
     if (doneHidden) {
       const hiddenTasks = data.tasks.filter((t) => t.durum === DONE && !ui.pinned.has(t.id) && matchesFilters(t, { includeDone: true }));
       count += hiddenTasks.length;
-      cards.append(...tasks.map(buildCard));
       if (hiddenTasks.length > 0) {
         cards.append(el('p', { class: 'board-note' },
-          `${hiddenTasks.length} tamamlanan görev gizli. `,
-          el('button', {
-            type: 'button',
-            class: 'btn btn-link',
-            textContent: 'Göster',
-            onclick: () => { ui.showCompleted = true; render(); },
-          })));
+          icon('eye-off', 'icon-sm'),
+          el('span', {}, `${hiddenTasks.length} tamamlanan görev gizli. `,
+            el('button', {
+              type: 'button',
+              class: 'btn btn-link',
+              textContent: 'Göster',
+              onclick: () => { ui.showCompleted = true; render(); },
+            }))));
       }
-    } else {
-      cards.append(...tasks.map(buildCard));
-      if (tasks.length === 0) cards.append(el('p', { class: 'board-note', textContent: 'Görev yok' }));
     }
+    if (count === 0) cards.append(el('p', { class: 'board-note board-empty' }, icon('inbox', 'icon-sm'), 'Görev yok'));
 
-    const column = el('section', { class: 'board-column', dataset: { status } },
-      el('h3', {}, el('span', { textContent: status }), el('span', { class: 'count-badge', textContent: String(count) })),
+    const column = el('section', { class: 'board-column', dataset: { status }, 'aria-label': status },
+      buildColumnHeader(status, count),
       cards);
 
     column.addEventListener('dragover', (e) => {
@@ -606,13 +618,34 @@
     return column;
   }
 
+  function buildLoadingColumn(status, i) {
+    const cards = el('div', { class: 'board-cards' });
+    for (let n = 0; n < 3 - (i % 2); n++) {
+      cards.append(el('div', { class: 'card card-skeleton', 'aria-hidden': 'true' },
+        el('span', { class: 'skeleton', style: 'width:40%' }),
+        el('span', { class: 'skeleton', style: 'width:85%' }),
+        el('span', { class: 'skeleton', style: 'width:60%' })));
+    }
+    const header = buildColumnHeader(status, 0);
+    header.querySelector('.count-badge').textContent = '–';
+    return el('section', { class: 'board-column', 'aria-hidden': 'true' }, header, cards);
+  }
+
   function renderBoard() {
+    const board = $('#board-view');
+    const loading = isInitialLoading();
+    ui.loadingShown = loading;
+    board.setAttribute('aria-busy', String(loading));
+    if (loading) {
+      ui.shownCount = 0;
+      board.replaceChildren(...data.lists.durum.map(buildLoadingColumn));
+      return;
+    }
     const tasks = visibleTasks();
     ui.shownCount = tasks.length;
     const statuses = ui.filters.durum ? [ui.filters.durum] : data.lists.durum;
-    $('#board-view').replaceChildren(...statuses.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
+    board.replaceChildren(...statuses.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
   }
-
   function isHiddenWhenDone() {
     return !ui.showCompleted && ui.filters.durum !== DONE;
   }
