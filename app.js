@@ -673,14 +673,28 @@
     const form = $('#task-form');
     $('#task-dialog-title').textContent = task ? 'Görevi Düzenle' : 'Yeni Görev';
     form.elements.gorev.value = draft.gorev;
-    for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key]);
+    for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key], EMPTY_LABELS[key]);
     form.elements.tamamlanmaTarihi.value = draft.tamamlanmaTarihi;
     const del = $('#task-delete');
     del.hidden = !task;
     del.disabled = !!task && task.durum === DONE;
     del.title = del.disabled ? 'Tamamlanan görevler silinemez' : 'Görevi sil';
+    showGorevError(false);
+    updateTaskFormState();
     $('#task-dialog').showModal();
     form.elements.gorev.focus();
+  }
+
+  function showGorevError(show) {
+    $('#task-form').elements.gorev.setAttribute('aria-invalid', String(show));
+    $('#gorev-error').hidden = !show;
+  }
+
+  function updateTaskFormState() {
+    const form = $('#task-form');
+    const empty = !form.elements.gorev.value.trim();
+    form.querySelector('button[type=submit]').disabled = empty;
+    if (!empty) showGorevError(false);
   }
 
   function saveTaskDialog(e) {
@@ -688,6 +702,7 @@
     const form = $('#task-form');
     const gorev = form.elements.gorev.value.trim();
     if (!gorev) {
+      showGorevError(true);
       alert('Görev açıklaması boş olamaz.');
       form.elements.gorev.focus();
       return;
@@ -921,43 +936,68 @@
     return true;
   }
 
+  let settingsFlash = null;
+
+  function iconButton(name, title, props = {}) {
+    return el('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm', title, 'aria-label': props['aria-label'] || title, ...props }, icon(name, 'icon-sm'));
+  }
+
   function renderSettings() {
     const container = $('#settings-lists');
+    const flash = settingsFlash;
+    settingsFlash = null;
     container.replaceChildren(...LIST_KEYS.map((key) => {
       const list = data.lists[key];
       const items = list.map((value, i) => {
         const fixed = key === 'durum' && value === DONE;
+        const used = usageCount(key, value);
         const input = el('input', {
           type: 'text',
+          class: 'input input-sm',
           value,
           disabled: fixed,
-          title: fixed ? 'Sabit durum – değiştirilemez' : 'Yeniden adlandırmak için düzenleyin',
+          'aria-label': `${LIST_LABELS[key]} değeri`,
+          title: fixed ? 'Sabit durum – değiştirilemez' : `${value} – yeniden adlandırmak için düzenleyin`,
           onchange: (e) => {
-            if (renameValue(key, value, e.target.value)) { renderSettings(); render(); } else e.target.value = value;
+            const next = str(e.target.value);
+            if (renameValue(key, value, e.target.value)) {
+              if (next !== value) settingsFlash = { key, value: next };
+              renderSettings();
+              render();
+            } else e.target.value = value;
           },
           onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
         });
         const lastMovable = key === 'durum' ? list.length - 2 : list.length - 1;
-        return el('li', {},
+        const flashed = flash && flash.key === key && flash.value === value;
+        const del = fixed
+          ? el('span', { class: 'settings-lock', title: 'Sabit durum silinemez' }, icon('lock', 'icon-sm'))
+          : iconButton('trash', 'Sil', {
+            class: `btn btn-ghost btn-icon btn-sm btn-danger${used ? ' is-blocked' : ''}`,
+            'aria-label': used ? `Sil (${used} görevde kullanılıyor)` : `${value} değerini sil`,
+            onclick: () => removeValue(key, value),
+          });
+        return el('li', { class: flashed ? 'is-flashed' : '' },
           input,
-          el('span', { class: 'usage', title: 'Kullanıldığı görev sayısı', textContent: String(usageCount(key, value)) }),
-          el('button', { type: 'button', class: 'btn btn-icon', textContent: '↑', title: 'Yukarı taşı', disabled: fixed || i === 0, onclick: () => moveValue(key, i, -1) }),
-          el('button', { type: 'button', class: 'btn btn-icon', textContent: '↓', title: 'Aşağı taşı', disabled: fixed || i >= lastMovable, onclick: () => moveValue(key, i, 1) }),
-          el('button', { type: 'button', class: 'btn btn-icon', textContent: '✕', title: fixed ? 'Sabit durum silinemez' : 'Sil', disabled: fixed, onclick: () => removeValue(key, value) }),
+          flashed ? el('span', { class: 'saved-flash', role: 'status' }, icon('check', 'icon-sm'), 'Kaydedildi') : null,
+          el('span', { class: `badge usage${used ? '' : ' is-zero'}`, title: 'Kullanıldığı görev sayısı', textContent: `${used} görev` }),
+          el('span', { class: 'settings-actions' },
+            iconButton('arrow-up', 'Yukarı taşı', { disabled: fixed || i === 0, onclick: () => moveValue(key, i, -1) }),
+            iconButton('arrow-down', 'Aşağı taşı', { disabled: fixed || i >= lastMovable, onclick: () => moveValue(key, i, 1) }),
+            del),
         );
       });
-      const addInput = el('input', { type: 'text', placeholder: `Yeni ${LIST_LABELS[key].toLocaleLowerCase('tr')}…` });
+      const addInput = el('input', { type: 'text', class: 'input input-sm', placeholder: `Yeni ${LIST_LABELS[key].toLocaleLowerCase('tr')}…`, 'aria-label': `Yeni ${LIST_LABELS[key].toLocaleLowerCase('tr')} ekle` });
       const doAdd = () => { if (addValue(key, addInput.value)) $(`#settings-add-${key}`)?.focus(); };
       addInput.id = `settings-add-${key}`;
       addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
       return el('section', { class: 'settings-list' },
-        el('h3', { textContent: `${LIST_LABELS[key]} (${list.length})` }),
+        el('h3', {}, LIST_LABELS[key], el('span', { class: 'count-badge', textContent: String(list.length) })),
         el('ul', {}, ...items),
-        el('div', { class: 'add-row' }, addInput, el('button', { type: 'button', class: 'btn', textContent: 'Ekle', onclick: doAdd })),
+        el('div', { class: 'add-row' }, addInput, el('button', { type: 'button', class: 'btn btn-sm', onclick: doAdd }, icon('plus', 'icon-sm'), 'Ekle')),
       );
     }));
   }
-
   // ---------- Import / Export ----------
 
   function download(filename, blob) {
@@ -1394,6 +1434,9 @@
     });
 
     $('#task-form').addEventListener('submit', saveTaskDialog);
+    const gorevInput = $('#task-form').elements.gorev;
+    gorevInput.addEventListener('input', updateTaskFormState);
+    gorevInput.addEventListener('blur', () => { if ($('#task-dialog').open && !gorevInput.value.trim()) showGorevError(true); });
     document.querySelectorAll('#task-dialog [data-close]').forEach((btn) => {
       btn.addEventListener('click', () => $('#task-dialog').close());
     });

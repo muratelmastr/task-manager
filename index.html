@@ -113,32 +113,43 @@
     <span id="backup-info"></span>
   </footer>
 
-  <dialog id="settings-dialog">
+  <dialog id="settings-dialog" class="modal modal-lg" aria-labelledby="settings-dialog-title" aria-describedby="settings-hint">
     <form method="dialog" class="dialog-header">
-      <h2>Ayarlar – Liste Değerleri</h2>
-      <button class="btn btn-link" value="close" aria-label="Kapat">✕</button>
+      <div class="dialog-heading">
+        <h2 id="settings-dialog-title">Ayarlar</h2>
+        <p class="dialog-subtitle">Liste değerleri</p>
+      </div>
+      <button class="btn btn-ghost btn-icon dialog-close" value="close" aria-label="Kapat" title="Kapat"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
     </form>
-    <p class="hint">Değerleri yeniden adlandırdığınızda mevcut görevler de güncellenir. Görevlerde kullanılan değerler silinemez. "Tamamlandı" durumu sabittir.</p>
-    <div id="settings-lists" class="settings-lists"></div>
+    <div class="dialog-body">
+      <p id="settings-hint" class="hint">Değerleri yeniden adlandırdığınızda mevcut görevler de güncellenir. Görevlerde kullanılan değerler silinemez. "Tamamlandı" durumu sabittir.</p>
+      <div id="settings-lists" class="settings-lists"></div>
+    </div>
   </dialog>
 
-  <dialog id="task-dialog">
+  <dialog id="task-dialog" class="modal" aria-labelledby="task-dialog-title">
     <form id="task-form">
       <div class="dialog-header">
-        <h2 id="task-dialog-title">Görev</h2>
-        <button type="button" class="btn btn-link" data-close aria-label="Kapat">✕</button>
+        <div class="dialog-heading">
+          <h2 id="task-dialog-title">Görev</h2>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon dialog-close" data-close aria-label="Kapat" title="Kapat"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
-      <label class="field">Görev
-        <input type="text" name="gorev" required maxlength="255" placeholder="Görev açıklaması…">
-      </label>
-      <div class="field-grid">
-        <label class="field">Alan <select name="alan"></select></label>
-        <label class="field">Sahip <select name="sahip"></select></label>
-        <label class="field">Durum <select name="durum"></select></label>
-        <label class="field">Tamamlanma Tarihi <input type="date" name="tamamlanmaTarihi"></label>
+      <div class="dialog-body">
+        <label class="field">
+          <span class="field-label">Görev <span class="required" aria-hidden="true">*</span></span>
+          <input type="text" name="gorev" class="input" required maxlength="255" placeholder="Görev açıklaması…" aria-describedby="gorev-error">
+          <span id="gorev-error" class="field-error" hidden><svg class="icon icon-sm" aria-hidden="true"><use href="#i-alert"/></svg>Görev açıklaması gerekli.</span>
+        </label>
+        <div class="field-grid">
+          <label class="field"><span class="field-label">Alan</span><select name="alan" class="select"></select></label>
+          <label class="field"><span class="field-label">Sahip</span><select name="sahip" class="select"></select></label>
+          <label class="field"><span class="field-label">Durum</span><select name="durum" class="select"></select></label>
+          <label class="field"><span class="field-label">Tamamlanma Tarihi</span><input type="date" name="tamamlanmaTarihi" class="input"></label>
+        </div>
       </div>
       <div class="dialog-actions">
-        <button type="button" id="task-delete" class="btn btn-danger">Sil</button>
+        <button type="button" id="task-delete" class="btn btn-ghost btn-danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Sil</button>
         <span class="spacer"></span>
         <button type="button" class="btn" data-close>Vazgeç</button>
         <button type="submit" class="btn btn-primary">Kaydet</button>
