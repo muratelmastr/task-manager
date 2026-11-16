@@ -90,18 +90,19 @@
       <table id="task-table">
         <thead>
           <tr>
-            <th data-sort="alan" class="col-alan">Alan</th>
-            <th data-sort="gorev" class="col-gorev">Görev</th>
-            <th data-sort="sahip" class="col-sahip">Sahip</th>
-            <th data-sort="durum" class="col-durum">Durum</th>
-            <th data-sort="tamamlanmaTarihi" class="col-tarih">Tamamlanma Tarihi</th>
-            <th data-sort="tamamlanmaTarihi" class="col-kalan">Kalan</th>
-            <th class="col-actions" aria-label="İşlemler"></th>
+            <th data-sort="alan" class="col-alan" aria-sort="none"><button type="button" class="th-sort">Alan<svg class="icon icon-sm sort-icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+            <th data-sort="gorev" class="col-gorev" aria-sort="none"><button type="button" class="th-sort">Görev<svg class="icon icon-sm sort-icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+            <th data-sort="sahip" class="col-sahip" aria-sort="none"><button type="button" class="th-sort">Sahip<svg class="icon icon-sm sort-icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+            <th data-sort="durum" class="col-durum" aria-sort="none"><button type="button" class="th-sort">Durum<svg class="icon icon-sm sort-icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+            <th data-sort="tamamlanmaTarihi" class="col-tarih" aria-sort="none"><button type="button" class="th-sort">Tamamlanma Tarihi<svg class="icon icon-sm sort-icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+            <th data-sort="tamamlanmaTarihi" class="col-kalan"><button type="button" class="th-sort" title="Tamamlanma tarihine göre sırala">Kalan</button></th>
+            <th class="col-actions"><span class="sr-only">İşlemler</span></th>
           </tr>
         </thead>
         <tbody id="task-body"></tbody>
       </table>
-      <p id="empty-state" class="empty-state" hidden></p>
+      <div id="loading-state" class="loading-state" aria-label="Görevler yükleniyor" hidden></div>
+      <div id="empty-state" class="empty-state" hidden></div>
     </div>
 
     <div id="board-view" class="board" hidden></div>

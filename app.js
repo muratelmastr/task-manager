@@ -80,6 +80,68 @@
     return node;
   }
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function icon(name, cls = '') {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', `icon ${cls}`.trim());
+    svg.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS(SVG_NS, 'use');
+    use.setAttribute('href', `#i-${name}`);
+    svg.append(use);
+    return svg;
+  }
+
+  // ---------- Visual tones (derived from values, not stored) ----------
+
+  const TONES = ['blue', 'violet', 'teal', 'pink', 'indigo', 'cyan', 'orange', 'moss', 'amber', 'green'];
+  const EXTRA_STATUS_TONES = ['violet', 'teal', 'pink', 'indigo', 'cyan', 'orange', 'moss'];
+  const STATUS_TONES = { 'başlanmadı': 'gray', 'devam ediyor': 'blue', 'beklemede': 'amber', 'tamamlandı': 'green' };
+
+  function hashText(text) {
+    let h = 0;
+    for (const ch of text.toLocaleLowerCase('tr')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return h;
+  }
+
+  function toneFor(key, value) {
+    if (!value) return 'gray';
+    if (key === 'durum') {
+      return STATUS_TONES[value.toLocaleLowerCase('tr')] || EXTRA_STATUS_TONES[hashText(value) % EXTRA_STATUS_TONES.length];
+    }
+    return TONES[hashText(value) % TONES.length];
+  }
+
+  function setTone(node, tone) {
+    [...node.classList].filter((c) => c.startsWith('tone-')).forEach((c) => node.classList.remove(c));
+    node.classList.add(`tone-${tone}`);
+  }
+
+  function initials(name) {
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return '';
+    if (words.length > 1) return (words[0][0] + words[1][0]).toLocaleUpperCase('tr');
+    const w = words[0];
+    const cap = [...w.slice(1)].find((c) => c !== c.toLocaleLowerCase('tr'));
+    return (w[0] + (cap || '')).toLocaleUpperCase('tr');
+  }
+
+  function updateAvatar(avatar, name) {
+    avatar.classList.toggle('avatar-empty', !name);
+    if (name) {
+      setTone(avatar, toneFor('sahip', name));
+      avatar.textContent = initials(name);
+    } else {
+      setTone(avatar, 'gray');
+      avatar.replaceChildren(icon('user'));
+    }
+  }
+
+  function buildAvatar(name, cls = '') {
+    const avatar = el('span', { class: `avatar ${cls}`.trim(), 'aria-hidden': 'true' });
+    updateAvatar(avatar, name);
+    return avatar;
+  }
+
   let toastTimer;
   function toast(message) {
     const t = $('#toast');
@@ -224,6 +286,7 @@
     filters: { alan: '', sahip: '', durum: '' },
     sort: { key: 'tamamlanmaTarihi', dir: 1 },
     pinned: new Set(), // newly added rows stay visible and on top until filters/sorting change
+    loadingShown: false,
   };
 
   // ---------- Due date logic ----------
@@ -330,9 +393,11 @@
     $('#search').value = ui.search;
   }
 
-  function fillOptions(select, key, value) {
+  const EMPTY_LABELS = { alan: '— Seçiniz —', sahip: 'Atanmamış', durum: '— Seçiniz —' };
+
+  function fillOptions(select, key, value, emptyLabel = '— Seçiniz —') {
     select.replaceChildren();
-    if (key !== 'durum' || !value) select.append(el('option', { value: '', textContent: '— Seçiniz —' }));
+    if (key !== 'durum' || !value) select.append(el('option', { value: '', textContent: emptyLabel }));
     for (const v of data.lists[key]) select.append(el('option', { value: v, textContent: v }));
     if (value && !data.lists[key].includes(value)) {
       select.append(el('option', { value, textContent: `${value} (listede yok)` }));
@@ -341,8 +406,12 @@
   }
 
   function buildSelect(key, task, onChange) {
-    const select = el('select', { class: `cell-${key}`, title: LIST_LABELS[key], onchange: (e) => onChange(e.target.value) });
-    fillOptions(select, key, task[key]);
+    const select = el('select', {
+      class: `cell-${key} cell-select`,
+      'aria-label': LIST_LABELS[key],
+      onchange: (e) => onChange(e.target.value),
+    });
+    fillOptions(select, key, task[key], EMPTY_LABELS[key]);
     return select;
   }
 
@@ -357,6 +426,7 @@
       value: task.gorev,
       placeholder: 'Görev açıklaması…',
       title: task.gorev,
+      'aria-label': 'Görev',
       onchange: (e) => { e.target.title = e.target.value; update('gorev')(e.target.value.trim()); },
       onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
     });
@@ -365,23 +435,24 @@
       type: 'date',
       class: 'cell-tarih',
       value: task.tamamlanmaTarihi,
-      title: 'Tamamlanma Tarihi',
+      'aria-label': 'Tamamlanma Tarihi',
+      onclick: (e) => { try { e.target.showPicker(); } catch { /* not supported or not allowed */ } },
       onchange: (e) => update('tamamlanmaTarihi')(isIsoDate(e.target.value) ? e.target.value : ''),
     });
 
     const deleteBtn = el('button', {
       type: 'button',
-      class: 'btn btn-link btn-icon btn-delete',
-      textContent: '🗑',
+      class: 'btn btn-ghost btn-icon btn-delete',
+      'aria-label': 'Görevi sil',
       onclick: () => deleteTask(task),
-    });
+    }, icon('trash'));
 
     tr.append(
-      el('td', {}, buildSelect('alan', task, update('alan'))),
-      el('td', {}, gorevInput),
-      el('td', {}, buildSelect('sahip', task, update('sahip'))),
+      el('td', { class: 'cell-alan-td' }, buildSelect('alan', task, update('alan'))),
+      el('td', { class: 'cell-gorev-td' }, gorevInput),
+      el('td', {}, el('div', { class: 'owner-cell' }, buildAvatar(task.sahip, 'avatar-sm'), buildSelect('sahip', task, update('sahip')))),
       el('td', {}, buildSelect('durum', task, update('durum'))),
-      el('td', {}, dateInput),
+      el('td', {}, el('div', { class: 'date-cell' }, dateInput, el('span', { class: 'date-empty', 'aria-hidden': 'true', textContent: '—' }))),
       el('td', { class: 'kalan' }),
       el('td', { class: 'actions' }, deleteBtn),
     );
@@ -391,34 +462,68 @@
 
   function applyRowState(tr, task) {
     const { level, label } = dueInfo(task);
+    const done = task.durum === DONE;
     tr.classList.toggle('due-red', level === 'red');
     tr.classList.toggle('due-yellow', level === 'yellow');
-    tr.classList.toggle('is-done', task.durum === DONE);
+    tr.classList.toggle('is-done', done);
     tr.classList.toggle('is-new', ui.pinned.has(task.id));
+
+    const alan = tr.querySelector('select.cell-alan');
+    alan.classList.toggle('is-empty', !task.alan);
+    setTone(alan, toneFor('alan', task.alan));
+    const durum = tr.querySelector('select.cell-durum');
+    setTone(durum, toneFor('durum', task.durum));
+    tr.querySelector('select.cell-sahip').classList.toggle('is-empty', !task.sahip);
+    updateAvatar(tr.querySelector('.owner-cell .avatar'), task.sahip);
+    tr.querySelector('.date-cell').classList.toggle('is-empty', !task.tamamlanmaTarihi);
+
     const kalan = tr.querySelector('td.kalan');
-    kalan.textContent = label;
-    kalan.title = task.durum === DONE && task.completedAt ? `Tamamlandı: ${formatDateTime(task.completedAt)}` : '';
+    const badgeCls = done ? 'badge-success' : level === 'red' ? 'badge-danger' : level === 'yellow' ? 'badge-warning' : '';
+    kalan.replaceChildren(label ? el('span', { class: `badge ${badgeCls}`.trim(), textContent: label }) : '');
+    kalan.title = done && task.completedAt ? `Tamamlandı: ${formatDateTime(task.completedAt)}` : '';
+
     const btn = tr.querySelector('.btn-delete');
-    const done = task.durum === DONE;
     btn.disabled = done;
     btn.title = done ? 'Tamamlanan görevler silinemez' : 'Görevi sil';
   }
 
-  function renderTable() {
-    const rows = visibleTasks();
-    ui.shownCount = rows.length;
-    $('#task-body').replaceChildren(...rows.map(buildRow));
-    const empty = $('#empty-state');
-    if (rows.length === 0) {
-      empty.hidden = false;
-      empty.textContent = data.tasks.length === 0
-        ? 'Henüz görev yok. "Yeni Görev" ile ekleyebilirsiniz.'
-        : 'Filtrelere uyan görev bulunamadı.';
-    } else {
-      empty.hidden = true;
+  const isInitialLoading = () => !!cloud && !cloud.ready && cloud.status === 'loading' && data.tasks.length === 0;
+
+  function renderLoadingState() {
+    const box = $('#loading-state');
+    if (!box.childElementCount) {
+      for (let i = 0; i < 5; i++) {
+        box.append(el('div', { class: 'skeleton-row' },
+          ...['14%', '38%', '12%', '12%', '10%', '8%'].map((w) => el('span', { class: 'skeleton', style: `width:${w}` }))));
+      }
     }
   }
 
+  function renderEmptyState(empty) {
+    const noTasks = data.tasks.length === 0;
+    empty.replaceChildren(
+      el('span', { class: 'empty-icon', 'aria-hidden': 'true' }, icon(noTasks ? 'inbox' : 'search', 'icon-lg')),
+      el('p', { class: 'empty-title', textContent: noTasks ? 'Henüz görev yok' : 'Filtrelere uyan görev bulunamadı' }),
+      el('p', { class: 'empty-text', textContent: noTasks ? '"Yeni Görev" ile ilk görevi ekleyebilirsiniz.' : 'Aramayı veya filtreleri değiştirmeyi deneyin.' }),
+      noTasks
+        ? el('button', { type: 'button', class: 'btn btn-primary', onclick: () => addTask() }, icon('plus'), 'Yeni Görev')
+        : (hasActiveFilters() ? el('button', { type: 'button', class: 'btn', onclick: () => $('#btn-clear-filters').click() }, icon('x', 'icon-sm'), 'Filtreleri temizle') : null),
+    );
+  }
+
+  function renderTable() {
+    const loading = isInitialLoading();
+    ui.loadingShown = loading;
+    $('#loading-state').hidden = !loading;
+    $('#list-view').setAttribute('aria-busy', String(loading));
+    if (loading) renderLoadingState();
+    const rows = loading ? [] : visibleTasks();
+    ui.shownCount = rows.length;
+    $('#task-body').replaceChildren(...rows.map(buildRow));
+    const empty = $('#empty-state');
+    empty.hidden = loading || rows.length > 0;
+    if (!empty.hidden) renderEmptyState(empty);
+  }
   // ---------- Board view ----------
 
   function buildCard(task) {
@@ -618,10 +723,12 @@
 
   function renderSortIndicators() {
     document.querySelectorAll('th[data-sort]').forEach((th) => {
-      th.querySelector('.sort-indicator')?.remove();
-      if (th.dataset.sort === ui.sort.key && th.classList.contains('col-kalan') === false) {
-        th.append(el('span', { class: 'sort-indicator', textContent: ui.sort.dir === 1 ? '▲' : '▼' }));
-      }
+      const active = th.dataset.sort === ui.sort.key && !th.classList.contains('col-kalan');
+      th.classList.toggle('is-sorted', active);
+      if (th.classList.contains('col-kalan')) return;
+      th.setAttribute('aria-sort', active ? (ui.sort.dir === 1 ? 'ascending' : 'descending') : 'none');
+      const use = th.querySelector('.sort-icon use');
+      if (use) use.setAttribute('href', active ? (ui.sort.dir === 1 ? '#i-arrow-up' : '#i-arrow-down') : '#i-sort');
     });
   }
 
@@ -1091,6 +1198,7 @@
     cloud.status = status;
     cloud.error = error;
     renderCloudStatus();
+    if (ui.loadingShown && !isInitialLoading()) renderView();
   }
 
   function renderCloudStatus() {
