@@ -73,10 +73,73 @@
       if (k === 'class') node.className = v;
       else if (k === 'dataset') Object.assign(node.dataset, v);
       else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+      else if ((k.startsWith('aria-') || k === 'role') && v !== undefined && v !== null && v !== false) node.setAttribute(k, v);
       else if (v !== undefined && v !== null && v !== false) node[k] = v;
     }
     for (const c of children) if (c !== null && c !== undefined) node.append(c);
     return node;
+  }
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function icon(name, cls = '') {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', `icon ${cls}`.trim());
+    svg.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS(SVG_NS, 'use');
+    use.setAttribute('href', `#i-${name}`);
+    svg.append(use);
+    return svg;
+  }
+
+  // ---------- Visual tones (derived from values, not stored) ----------
+
+  const TONES = ['blue', 'violet', 'teal', 'pink', 'indigo', 'cyan', 'orange', 'moss', 'amber', 'green'];
+  const EXTRA_STATUS_TONES = ['violet', 'teal', 'pink', 'indigo', 'cyan', 'orange', 'moss'];
+  const STATUS_TONES = { 'başlanmadı': 'gray', 'devam ediyor': 'blue', 'beklemede': 'amber', 'tamamlandı': 'green' };
+
+  function hashText(text) {
+    let h = 0;
+    for (const ch of text.toLocaleLowerCase('tr')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return h;
+  }
+
+  function toneFor(key, value) {
+    if (!value) return 'gray';
+    if (key === 'durum') {
+      return STATUS_TONES[value.toLocaleLowerCase('tr')] || EXTRA_STATUS_TONES[hashText(value) % EXTRA_STATUS_TONES.length];
+    }
+    return TONES[hashText(value) % TONES.length];
+  }
+
+  function setTone(node, tone) {
+    [...node.classList].filter((c) => c.startsWith('tone-')).forEach((c) => node.classList.remove(c));
+    node.classList.add(`tone-${tone}`);
+  }
+
+  function initials(name) {
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return '';
+    if (words.length > 1) return (words[0][0] + words[1][0]).toLocaleUpperCase('tr');
+    const w = words[0];
+    const cap = [...w.slice(1)].find((c) => c !== c.toLocaleLowerCase('tr'));
+    return (w[0] + (cap || '')).toLocaleUpperCase('tr');
+  }
+
+  function updateAvatar(avatar, name) {
+    avatar.classList.toggle('avatar-empty', !name);
+    if (name) {
+      setTone(avatar, toneFor('sahip', name));
+      avatar.textContent = initials(name);
+    } else {
+      setTone(avatar, 'gray');
+      avatar.replaceChildren(icon('user'));
+    }
+  }
+
+  function buildAvatar(name, cls = '') {
+    const avatar = el('span', { class: `avatar ${cls}`.trim(), 'aria-hidden': 'true' });
+    updateAvatar(avatar, name);
+    return avatar;
   }
 
   let toastTimer;
@@ -223,6 +286,7 @@
     filters: { alan: '', sahip: '', durum: '' },
     sort: { key: 'tamamlanmaTarihi', dir: 1 },
     pinned: new Set(), // newly added rows stay visible and on top until filters/sorting change
+    loadingShown: false,
   };
 
   // ---------- Due date logic ----------
@@ -298,6 +362,7 @@
     renderSummary();
     renderSortIndicators();
     renderBackupInfo();
+    updateFilterUi();
   }
 
   function renderView() {
@@ -328,9 +393,11 @@
     $('#search').value = ui.search;
   }
 
-  function fillOptions(select, key, value) {
+  const EMPTY_LABELS = { alan: '— Seçiniz —', sahip: 'Atanmamış', durum: '— Seçiniz —' };
+
+  function fillOptions(select, key, value, emptyLabel = '— Seçiniz —') {
     select.replaceChildren();
-    if (key !== 'durum' || !value) select.append(el('option', { value: '', textContent: '— Seçiniz —' }));
+    if (key !== 'durum' || !value) select.append(el('option', { value: '', textContent: emptyLabel }));
     for (const v of data.lists[key]) select.append(el('option', { value: v, textContent: v }));
     if (value && !data.lists[key].includes(value)) {
       select.append(el('option', { value, textContent: `${value} (listede yok)` }));
@@ -339,8 +406,12 @@
   }
 
   function buildSelect(key, task, onChange) {
-    const select = el('select', { class: `cell-${key}`, title: LIST_LABELS[key], onchange: (e) => onChange(e.target.value) });
-    fillOptions(select, key, task[key]);
+    const select = el('select', {
+      class: `cell-${key} cell-select`,
+      'aria-label': LIST_LABELS[key],
+      onchange: (e) => onChange(e.target.value),
+    });
+    fillOptions(select, key, task[key], EMPTY_LABELS[key]);
     return select;
   }
 
@@ -355,6 +426,7 @@
       value: task.gorev,
       placeholder: 'Görev açıklaması…',
       title: task.gorev,
+      'aria-label': 'Görev',
       onchange: (e) => { e.target.title = e.target.value; update('gorev')(e.target.value.trim()); },
       onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
     });
@@ -363,23 +435,24 @@
       type: 'date',
       class: 'cell-tarih',
       value: task.tamamlanmaTarihi,
-      title: 'Tamamlanma Tarihi',
+      'aria-label': 'Tamamlanma Tarihi',
+      onclick: (e) => { try { e.target.showPicker(); } catch { /* not supported or not allowed */ } },
       onchange: (e) => update('tamamlanmaTarihi')(isIsoDate(e.target.value) ? e.target.value : ''),
     });
 
     const deleteBtn = el('button', {
       type: 'button',
-      class: 'btn btn-link btn-icon btn-delete',
-      textContent: '🗑',
+      class: 'btn btn-ghost btn-icon btn-delete',
+      'aria-label': 'Görevi sil',
       onclick: () => deleteTask(task),
-    });
+    }, icon('trash'));
 
     tr.append(
-      el('td', {}, buildSelect('alan', task, update('alan'))),
-      el('td', {}, gorevInput),
-      el('td', {}, buildSelect('sahip', task, update('sahip'))),
+      el('td', { class: 'cell-alan-td' }, buildSelect('alan', task, update('alan'))),
+      el('td', { class: 'cell-gorev-td' }, gorevInput),
+      el('td', {}, el('div', { class: 'owner-cell' }, buildAvatar(task.sahip, 'avatar-sm'), buildSelect('sahip', task, update('sahip')))),
       el('td', {}, buildSelect('durum', task, update('durum'))),
-      el('td', {}, dateInput),
+      el('td', {}, el('div', { class: 'date-cell' }, dateInput, el('span', { class: 'date-empty', 'aria-hidden': 'true', textContent: '—' }))),
       el('td', { class: 'kalan' }),
       el('td', { class: 'actions' }, deleteBtn),
     );
@@ -389,47 +462,85 @@
 
   function applyRowState(tr, task) {
     const { level, label } = dueInfo(task);
+    const done = task.durum === DONE;
     tr.classList.toggle('due-red', level === 'red');
     tr.classList.toggle('due-yellow', level === 'yellow');
-    tr.classList.toggle('is-done', task.durum === DONE);
+    tr.classList.toggle('is-done', done);
     tr.classList.toggle('is-new', ui.pinned.has(task.id));
+
+    const alan = tr.querySelector('select.cell-alan');
+    alan.classList.toggle('is-empty', !task.alan);
+    setTone(alan, toneFor('alan', task.alan));
+    const durum = tr.querySelector('select.cell-durum');
+    setTone(durum, toneFor('durum', task.durum));
+    tr.querySelector('select.cell-sahip').classList.toggle('is-empty', !task.sahip);
+    updateAvatar(tr.querySelector('.owner-cell .avatar'), task.sahip);
+    tr.querySelector('.date-cell').classList.toggle('is-empty', !task.tamamlanmaTarihi);
+
     const kalan = tr.querySelector('td.kalan');
-    kalan.textContent = label;
-    kalan.title = task.durum === DONE && task.completedAt ? `Tamamlandı: ${formatDateTime(task.completedAt)}` : '';
+    const badgeCls = done ? 'badge-success' : level === 'red' ? 'badge-danger' : level === 'yellow' ? 'badge-warning' : '';
+    kalan.replaceChildren(label ? el('span', { class: `badge ${badgeCls}`.trim(), textContent: label }) : '');
+    kalan.title = done && task.completedAt ? `Tamamlandı: ${formatDateTime(task.completedAt)}` : '';
+
     const btn = tr.querySelector('.btn-delete');
-    const done = task.durum === DONE;
     btn.disabled = done;
     btn.title = done ? 'Tamamlanan görevler silinemez' : 'Görevi sil';
   }
 
-  function renderTable() {
-    const rows = visibleTasks();
-    ui.shownCount = rows.length;
-    $('#task-body').replaceChildren(...rows.map(buildRow));
-    const empty = $('#empty-state');
-    if (rows.length === 0) {
-      empty.hidden = false;
-      empty.textContent = data.tasks.length === 0
-        ? 'Henüz görev yok. "+ Yeni Görev" ile ekleyebilirsiniz.'
-        : 'Filtrelere uyan görev bulunamadı.';
-    } else {
-      empty.hidden = true;
+  const isInitialLoading = () => !!cloud && !cloud.ready && cloud.status === 'loading' && data.tasks.length === 0;
+
+  function renderLoadingState() {
+    const box = $('#loading-state');
+    if (!box.childElementCount) {
+      for (let i = 0; i < 5; i++) {
+        box.append(el('div', { class: 'skeleton-row' },
+          ...['14%', '38%', '12%', '12%', '10%', '8%'].map((w) => el('span', { class: 'skeleton', style: `width:${w}` }))));
+      }
     }
   }
 
+  function renderEmptyState(empty) {
+    const noTasks = data.tasks.length === 0;
+    empty.replaceChildren(
+      el('span', { class: 'empty-icon', 'aria-hidden': 'true' }, icon(noTasks ? 'inbox' : 'search', 'icon-lg')),
+      el('p', { class: 'empty-title', textContent: noTasks ? 'Henüz görev yok' : 'Filtrelere uyan görev bulunamadı' }),
+      el('p', { class: 'empty-text', textContent: noTasks ? '"Yeni Görev" ile ilk görevi ekleyebilirsiniz.' : 'Aramayı veya filtreleri değiştirmeyi deneyin.' }),
+      noTasks
+        ? el('button', { type: 'button', class: 'btn btn-primary', onclick: () => addTask() }, icon('plus'), 'Yeni Görev')
+        : (hasActiveFilters() ? el('button', { type: 'button', class: 'btn', onclick: () => $('#btn-clear-filters').click() }, icon('x', 'icon-sm'), 'Filtreleri temizle') : null),
+    );
+  }
+
+  function renderTable() {
+    const loading = isInitialLoading();
+    ui.loadingShown = loading;
+    $('#loading-state').hidden = !loading;
+    $('#list-view').setAttribute('aria-busy', String(loading));
+    if (loading) renderLoadingState();
+    const rows = loading ? [] : visibleTasks();
+    ui.shownCount = rows.length;
+    $('#task-body').replaceChildren(...rows.map(buildRow));
+    const empty = $('#empty-state');
+    empty.hidden = loading || rows.length > 0;
+    if (!empty.hidden) renderEmptyState(empty);
+  }
   // ---------- Board view ----------
 
   function buildCard(task) {
     const { level, label } = dueInfo(task);
+    const done = task.durum === DONE;
     const classes = ['card'];
     if (level) classes.push(`due-${level}`);
-    if (task.durum === DONE) classes.push('is-done');
+    if (done) classes.push('is-done');
     if (ui.pinned.has(task.id)) classes.push('is-new');
 
+    const badgeCls = level === 'red' ? 'badge-danger' : level === 'yellow' ? 'badge-warning' : '';
     const meta = el('div', { class: 'card-meta' },
-      el('span', { class: 'card-sahip', textContent: `👤 ${task.sahip || '—'}` }),
+      el('span', { class: `card-sahip${task.sahip ? '' : ' is-empty'}` }, buildAvatar(task.sahip, 'avatar-sm'), task.sahip || 'Atanmamış'),
       task.tamamlanmaTarihi
-        ? el('span', { class: 'card-due', textContent: `📅 ${formatDate(task.tamamlanmaTarihi)}${label && label !== '✓' ? ` · ${label}` : ''}` })
+        ? el('span', { class: 'card-due' },
+          el('span', { class: 'card-date' }, icon('calendar', 'icon-sm'), formatDate(task.tamamlanmaTarihi)),
+          label && !done ? el('span', { class: `badge ${badgeCls}`.trim(), textContent: label }) : null)
         : null,
     );
 
@@ -438,6 +549,7 @@
       draggable: true,
       tabIndex: 0,
       title: 'Düzenlemek için tıklayın, durumunu değiştirmek için sürükleyin',
+      'aria-label': `${task.gorev || 'İsimsiz görev'}${task.sahip ? `, ${task.sahip}` : ''}${label && !done ? `, ${label}` : ''}`,
       dataset: { id: task.id },
       onclick: () => openTaskDialog(task),
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskDialog(task); } },
@@ -445,13 +557,21 @@
         e.dataTransfer.setData('text/plain', task.id);
         e.dataTransfer.effectAllowed = 'move';
         card.classList.add('dragging');
+        document.body.classList.add('is-dragging');
       },
-      ondragend: () => card.classList.remove('dragging'),
+      ondragend: () => { card.classList.remove('dragging'); document.body.classList.remove('is-dragging'); },
     },
-    task.alan ? el('span', { class: 'card-alan', textContent: task.alan }) : null,
-    el('div', { class: 'card-title', textContent: task.gorev || '(İsimsiz görev)' }),
+    task.alan ? el('span', { class: `tag card-alan tone-${toneFor('alan', task.alan)}`, textContent: task.alan }) : null,
+    el('div', { class: `card-title${task.gorev ? '' : ' is-empty'}`, textContent: task.gorev || '(İsimsiz görev)' }),
     meta);
     return card;
+  }
+
+  function buildColumnHeader(status, count) {
+    return el('h3', { class: 'board-column-header' },
+      el('span', { class: `status-dot tone-${toneFor('durum', status)}`, 'aria-hidden': 'true' }),
+      el('span', { class: 'board-column-title', textContent: status }),
+      el('span', { class: 'count-badge', textContent: String(count) }));
   }
 
   function buildColumn(status, tasks) {
@@ -460,27 +580,26 @@
     const cards = el('div', { class: 'board-cards' });
     let count = tasks.length;
 
+    cards.append(...tasks.map(buildCard));
     if (doneHidden) {
       const hiddenTasks = data.tasks.filter((t) => t.durum === DONE && !ui.pinned.has(t.id) && matchesFilters(t, { includeDone: true }));
       count += hiddenTasks.length;
-      cards.append(...tasks.map(buildCard));
       if (hiddenTasks.length > 0) {
         cards.append(el('p', { class: 'board-note' },
-          `${hiddenTasks.length} tamamlanan görev gizli. `,
-          el('button', {
-            type: 'button',
-            class: 'btn btn-link',
-            textContent: 'Göster',
-            onclick: () => { ui.showCompleted = true; render(); },
-          })));
+          icon('eye-off', 'icon-sm'),
+          el('span', {}, `${hiddenTasks.length} tamamlanan görev gizli. `,
+            el('button', {
+              type: 'button',
+              class: 'btn btn-link',
+              textContent: 'Göster',
+              onclick: () => { ui.showCompleted = true; render(); },
+            }))));
       }
-    } else {
-      cards.append(...tasks.map(buildCard));
-      if (tasks.length === 0) cards.append(el('p', { class: 'board-note', textContent: 'Görev yok' }));
     }
+    if (count === 0) cards.append(el('p', { class: 'board-note board-empty' }, icon('inbox', 'icon-sm'), 'Görev yok'));
 
-    const column = el('section', { class: 'board-column', dataset: { status } },
-      el('h3', {}, el('span', { textContent: status }), el('span', { class: 'count-badge', textContent: String(count) })),
+    const column = el('section', { class: 'board-column', dataset: { status }, 'aria-label': status },
+      buildColumnHeader(status, count),
       cards);
 
     column.addEventListener('dragover', (e) => {
@@ -499,13 +618,34 @@
     return column;
   }
 
+  function buildLoadingColumn(status, i) {
+    const cards = el('div', { class: 'board-cards' });
+    for (let n = 0; n < 3 - (i % 2); n++) {
+      cards.append(el('div', { class: 'card card-skeleton', 'aria-hidden': 'true' },
+        el('span', { class: 'skeleton', style: 'width:40%' }),
+        el('span', { class: 'skeleton', style: 'width:85%' }),
+        el('span', { class: 'skeleton', style: 'width:60%' })));
+    }
+    const header = buildColumnHeader(status, 0);
+    header.querySelector('.count-badge').textContent = '–';
+    return el('section', { class: 'board-column', 'aria-hidden': 'true' }, header, cards);
+  }
+
   function renderBoard() {
+    const board = $('#board-view');
+    const loading = isInitialLoading();
+    ui.loadingShown = loading;
+    board.setAttribute('aria-busy', String(loading));
+    if (loading) {
+      ui.shownCount = 0;
+      board.replaceChildren(...data.lists.durum.map(buildLoadingColumn));
+      return;
+    }
     const tasks = visibleTasks();
     ui.shownCount = tasks.length;
     const statuses = ui.filters.durum ? [ui.filters.durum] : data.lists.durum;
-    $('#board-view').replaceChildren(...statuses.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
+    board.replaceChildren(...statuses.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
   }
-
   function isHiddenWhenDone() {
     return !ui.showCompleted && ui.filters.durum !== DONE;
   }
@@ -533,14 +673,28 @@
     const form = $('#task-form');
     $('#task-dialog-title').textContent = task ? 'Görevi Düzenle' : 'Yeni Görev';
     form.elements.gorev.value = draft.gorev;
-    for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key]);
+    for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key], EMPTY_LABELS[key]);
     form.elements.tamamlanmaTarihi.value = draft.tamamlanmaTarihi;
     const del = $('#task-delete');
     del.hidden = !task;
     del.disabled = !!task && task.durum === DONE;
     del.title = del.disabled ? 'Tamamlanan görevler silinemez' : 'Görevi sil';
+    showGorevError(false);
+    updateTaskFormState();
     $('#task-dialog').showModal();
     form.elements.gorev.focus();
+  }
+
+  function showGorevError(show) {
+    $('#task-form').elements.gorev.setAttribute('aria-invalid', String(show));
+    $('#gorev-error').hidden = !show;
+  }
+
+  function updateTaskFormState() {
+    const form = $('#task-form');
+    const empty = !form.elements.gorev.value.trim();
+    form.querySelector('button[type=submit]').disabled = empty;
+    if (!empty) showGorevError(false);
   }
 
   function saveTaskDialog(e) {
@@ -548,6 +702,7 @@
     const form = $('#task-form');
     const gorev = form.elements.gorev.value.trim();
     if (!gorev) {
+      showGorevError(true);
       alert('Görev açıklaması boş olamaz.');
       form.elements.gorev.focus();
       return;
@@ -589,21 +744,39 @@
       else if (level === 'yellow') yellow += 1;
     }
     const shown = ui.shownCount;
+    const stat = (value, label, extra = {}) => el('span', { class: `stat ${extra.class || ''}`.trim(), title: extra.title || '' },
+      extra.dot ? el('span', { class: 'status-dot', 'aria-hidden': 'true' }) : null,
+      el('span', { class: 'stat-value', textContent: String(value) }),
+      el('span', { class: 'stat-label', textContent: label }),
+      extra.hint ? el('span', { class: 'stat-hint', textContent: extra.hint }) : null);
     $('#summary').replaceChildren(
-      el('span', { textContent: `Gösterilen: ${shown}` }),
-      el('span', { textContent: `Açık: ${open.length}` }),
-      el('span', { textContent: `Tamamlanan: ${done}` }),
-      el('span', { class: 'count-red', textContent: `Kritik: ${red}` }),
-      el('span', { class: 'count-yellow', textContent: `Yaklaşan: ${yellow}` }),
+      stat(shown, 'gösterilen'),
+      stat(open.length, 'açık'),
+      stat(done, 'tamamlanan'),
+      stat(red, 'kritik', { class: `count-red${red ? '' : ' is-zero'}`, dot: true, hint: '3 günden az / gecikmiş', title: 'Tamamlanma tarihine 3 günden az kalan veya geciken açık görevler (kırmızı)' }),
+      stat(yellow, 'yaklaşan', { class: `count-yellow${yellow ? '' : ' is-zero'}`, dot: true, hint: '1 haftadan az', title: 'Tamamlanma tarihine 1 haftadan az kalan açık görevler (sarı)' }),
     );
+  }
+
+  function hasActiveFilters() {
+    return !!(ui.search.trim() || ui.showCompleted || LIST_KEYS.some((k) => ui.filters[k]));
+  }
+
+  function updateFilterUi() {
+    for (const key of LIST_KEYS) {
+      $(`#filter-${key}`).closest('.filter-control').classList.toggle('is-active', !!ui.filters[key]);
+    }
+    $('#btn-clear-filters').hidden = !hasActiveFilters();
   }
 
   function renderSortIndicators() {
     document.querySelectorAll('th[data-sort]').forEach((th) => {
-      th.querySelector('.sort-indicator')?.remove();
-      if (th.dataset.sort === ui.sort.key && th.classList.contains('col-kalan') === false) {
-        th.append(el('span', { class: 'sort-indicator', textContent: ui.sort.dir === 1 ? '▲' : '▼' }));
-      }
+      const active = th.dataset.sort === ui.sort.key && !th.classList.contains('col-kalan');
+      th.classList.toggle('is-sorted', active);
+      if (th.classList.contains('col-kalan')) return;
+      th.setAttribute('aria-sort', active ? (ui.sort.dir === 1 ? 'ascending' : 'descending') : 'none');
+      const use = th.querySelector('.sort-icon use');
+      if (use) use.setAttribute('href', active ? (ui.sort.dir === 1 ? '#i-arrow-up' : '#i-arrow-down') : '#i-sort');
     });
   }
 
@@ -763,43 +936,68 @@
     return true;
   }
 
+  let settingsFlash = null;
+
+  function iconButton(name, title, props = {}) {
+    return el('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm', title, 'aria-label': props['aria-label'] || title, ...props }, icon(name, 'icon-sm'));
+  }
+
   function renderSettings() {
     const container = $('#settings-lists');
+    const flash = settingsFlash;
+    settingsFlash = null;
     container.replaceChildren(...LIST_KEYS.map((key) => {
       const list = data.lists[key];
       const items = list.map((value, i) => {
         const fixed = key === 'durum' && value === DONE;
+        const used = usageCount(key, value);
         const input = el('input', {
           type: 'text',
+          class: 'input input-sm',
           value,
           disabled: fixed,
-          title: fixed ? 'Sabit durum – değiştirilemez' : 'Yeniden adlandırmak için düzenleyin',
+          'aria-label': `${LIST_LABELS[key]} değeri`,
+          title: fixed ? 'Sabit durum – değiştirilemez' : `${value} – yeniden adlandırmak için düzenleyin`,
           onchange: (e) => {
-            if (renameValue(key, value, e.target.value)) { renderSettings(); render(); } else e.target.value = value;
+            const next = str(e.target.value);
+            if (renameValue(key, value, e.target.value)) {
+              if (next !== value) settingsFlash = { key, value: next };
+              renderSettings();
+              render();
+            } else e.target.value = value;
           },
           onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
         });
         const lastMovable = key === 'durum' ? list.length - 2 : list.length - 1;
-        return el('li', {},
+        const flashed = flash && flash.key === key && flash.value === value;
+        const del = fixed
+          ? el('span', { class: 'settings-lock', title: 'Sabit durum silinemez' }, icon('lock', 'icon-sm'))
+          : iconButton('trash', 'Sil', {
+            class: `btn btn-ghost btn-icon btn-sm btn-danger${used ? ' is-blocked' : ''}`,
+            'aria-label': used ? `Sil (${used} görevde kullanılıyor)` : `${value} değerini sil`,
+            onclick: () => removeValue(key, value),
+          });
+        return el('li', { class: flashed ? 'is-flashed' : '' },
           input,
-          el('span', { class: 'usage', title: 'Kullanıldığı görev sayısı', textContent: String(usageCount(key, value)) }),
-          el('button', { type: 'button', class: 'btn btn-icon', textContent: '↑', title: 'Yukarı taşı', disabled: fixed || i === 0, onclick: () => moveValue(key, i, -1) }),
-          el('button', { type: 'button', class: 'btn btn-icon', textContent: '↓', title: 'Aşağı taşı', disabled: fixed || i >= lastMovable, onclick: () => moveValue(key, i, 1) }),
-          el('button', { type: 'button', class: 'btn btn-icon', textContent: '✕', title: fixed ? 'Sabit durum silinemez' : 'Sil', disabled: fixed, onclick: () => removeValue(key, value) }),
+          flashed ? el('span', { class: 'saved-flash', role: 'status' }, icon('check', 'icon-sm'), 'Kaydedildi') : null,
+          el('span', { class: `badge usage${used ? '' : ' is-zero'}`, title: 'Kullanıldığı görev sayısı', textContent: `${used} görev` }),
+          el('span', { class: 'settings-actions' },
+            iconButton('arrow-up', 'Yukarı taşı', { disabled: fixed || i === 0, onclick: () => moveValue(key, i, -1) }),
+            iconButton('arrow-down', 'Aşağı taşı', { disabled: fixed || i >= lastMovable, onclick: () => moveValue(key, i, 1) }),
+            del),
         );
       });
-      const addInput = el('input', { type: 'text', placeholder: `Yeni ${LIST_LABELS[key].toLocaleLowerCase('tr')}…` });
+      const addInput = el('input', { type: 'text', class: 'input input-sm', placeholder: `Yeni ${LIST_LABELS[key].toLocaleLowerCase('tr')}…`, 'aria-label': `Yeni ${LIST_LABELS[key].toLocaleLowerCase('tr')} ekle` });
       const doAdd = () => { if (addValue(key, addInput.value)) $(`#settings-add-${key}`)?.focus(); };
       addInput.id = `settings-add-${key}`;
       addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
       return el('section', { class: 'settings-list' },
-        el('h3', { textContent: `${LIST_LABELS[key]} (${list.length})` }),
+        el('h3', {}, LIST_LABELS[key], el('span', { class: 'count-badge', textContent: String(list.length) })),
         el('ul', {}, ...items),
-        el('div', { class: 'add-row' }, addInput, el('button', { type: 'button', class: 'btn', textContent: 'Ekle', onclick: doAdd })),
+        el('div', { class: 'add-row' }, addInput, el('button', { type: 'button', class: 'btn btn-sm', onclick: doAdd }, icon('plus', 'icon-sm'), 'Ekle')),
       );
     }));
   }
-
   // ---------- Import / Export ----------
 
   function download(filename, blob) {
@@ -1073,17 +1271,18 @@
     cloud.status = status;
     cloud.error = error;
     renderCloudStatus();
+    if (ui.loadingShown && !isInitialLoading()) renderView();
   }
 
   function renderCloudStatus() {
     const el2 = $('#cloud-status');
     const time = cloud.lastSyncAt ? new Date(cloud.lastSyncAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
     const states = {
-      loading: ['⟳ Yükleniyor…', 'busy'],
-      saving: ['⟳ Kaydediliyor…', 'busy'],
-      saved: [`☁ Kaydedildi${time ? ` · ${time}` : ''}`, 'ok'],
-      offline: ['⚠ Çevrimdışı – bağlantı gelince kaydedilecek', 'warn'],
-      error: ['⚠ Kaydedilemedi – tekrar denenecek', 'warn'],
+      loading: ['Yükleniyor…', 'busy'],
+      saving: ['Kaydediliyor…', 'busy'],
+      saved: [`Kaydedildi${time ? ` · ${time}` : ''}`, 'ok'],
+      offline: ['Çevrimdışı – bağlantı gelince kaydedilecek', 'warn'],
+      error: ['Kaydedilemedi – tekrar denenecek', 'warn'],
     };
     const [text, cls] = states[cloud.status];
     el2.textContent = text;
@@ -1168,6 +1367,58 @@
 
   // ---------- Event wiring ----------
 
+  function setupDataMenu() {
+    const button = $('#btn-data-menu');
+    const list = $('#data-menu-list');
+    const items = () => [...list.querySelectorAll('[role="menuitem"]')];
+    const isOpen = () => !list.hidden;
+
+    function open(focusIndex = 0) {
+      list.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      const all = items();
+      all[(focusIndex + all.length) % all.length].focus();
+    }
+    function close(returnFocus = false) {
+      if (!isOpen()) return;
+      list.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      if (returnFocus) button.focus();
+    }
+
+    button.addEventListener('click', () => (isOpen() ? close() : open()));
+    button.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); open(0); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); open(-1); }
+    });
+    list.addEventListener('click', (e) => { if (e.target.closest('[role="menuitem"]')) close(true); });
+    list.addEventListener('keydown', (e) => {
+      const all = items();
+      const idx = all.indexOf(document.activeElement);
+      const moves = { ArrowDown: idx + 1, ArrowUp: idx - 1, Home: 0, End: all.length - 1 };
+      if (e.key in moves) {
+        e.preventDefault();
+        all[(moves[e.key] + all.length) % all.length].focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close(true);
+      } else if (e.key === 'Tab') {
+        close();
+      }
+    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('#data-menu')) close(); });
+  }
+
+  function setupHeader() {
+    const header = $('#app-header');
+    const onScroll = () => header.classList.toggle('is-scrolled', window.scrollY > 4);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    // Sticky table headers sit right below the (wrapping) app header.
+    const setHeight = () => document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`);
+    if (window.ResizeObserver) new ResizeObserver(setHeight).observe(header);
+    setHeight();
+  }
   function bindEvents() {
     $('#btn-add').addEventListener('click', addTask);
 
@@ -1183,6 +1434,9 @@
     });
 
     $('#task-form').addEventListener('submit', saveTaskDialog);
+    const gorevInput = $('#task-form').elements.gorev;
+    gorevInput.addEventListener('input', updateTaskFormState);
+    gorevInput.addEventListener('blur', () => { if ($('#task-dialog').open && !gorevInput.value.trim()) showGorevError(true); });
     document.querySelectorAll('#task-dialog [data-close]').forEach((btn) => {
       btn.addEventListener('click', () => $('#task-dialog').close());
     });
@@ -1195,6 +1449,7 @@
       resetPinned();
       renderView();
       renderSummary();
+      updateFilterUi();
     });
 
     document.querySelectorAll('select[data-filter]').forEach((select) => {
@@ -1203,6 +1458,7 @@
         resetPinned();
         renderView();
         renderSummary();
+        updateFilterUi();
       });
     });
 
@@ -1211,6 +1467,7 @@
       resetPinned();
       renderView();
       renderSummary();
+      updateFilterUi();
     });
 
     $('#btn-clear-filters').addEventListener('click', () => {
@@ -1219,6 +1476,7 @@
       ui.showCompleted = false;
       resetPinned();
       render();
+      $('#search').focus();
     });
 
     document.querySelectorAll('th[data-sort]').forEach((th) => {
@@ -1245,6 +1503,8 @@
       if (file) importJson(file);
       e.target.value = '';
     });
+    setupDataMenu();
+    setupHeader();
 
     // Keep multiple open tabs in sync.
     window.addEventListener('storage', (e) => {
