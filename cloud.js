@@ -1,5 +1,5 @@
 // Firebase Realtime Database REST client – no SDK, no login.
-// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, tamamlanmaTarihi, completedAt, createdAt, updatedAt }
+// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, oncelik?, tamamlanmaTarihi, completedAt, createdAt, updatedAt }
 //               /lists/{alan|sahip|durum} = values separated by "\n"
 (() => {
   'use strict';

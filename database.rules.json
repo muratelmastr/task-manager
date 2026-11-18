@@ -10,6 +10,7 @@
         "alan": { ".validate": "newData.isString() && newData.val().length <= 200" },
         "sahip": { ".validate": "newData.isString() && newData.val().length <= 200" },
         "durum": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+        "oncelik": { ".validate": "newData.isString() && (newData.val() === '' || newData.val() === 'Yüksek' || newData.val() === 'Orta' || newData.val() === 'Düşük')" },
         "tamamlanmaTarihi": { ".validate": "newData.isString() && (newData.val() === '' || newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/))" },
         "completedAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
         "createdAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
