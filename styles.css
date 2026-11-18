@@ -275,6 +275,26 @@ body {
 .tone-orange { --tone-bg: #fef6ee; --tone-fg: #b93815; --tone-border: #f9dbaf; --tone-dot: #ef6820; }
 .tone-moss   { --tone-bg: #f5fbee; --tone-fg: #3f621a; --tone-border: #d0e6b2; --tone-dot: #669f2a; }
 
+/* Priority levels */
+.prio-high   { --prio-color: #e04f16; --prio-bg: #fef6ee; --prio-fg: #b93815; --prio-border: #f9dbaf; }
+.prio-medium { --prio-color: #2e90fa; --prio-bg: #eff8ff; --prio-fg: #175cd3; --prio-border: #b2ddff; }
+.prio-low    { --prio-color: #667085; --prio-bg: #f9fafb; --prio-fg: #475467; --prio-border: #e4e7ec; }
+.prio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 var(--space-2) 0 6px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--prio-fg);
+  background: var(--prio-bg);
+  border: 1px solid var(--prio-border);
+  border-radius: var(--radius-full);
+}
+.prio-chip .icon { color: var(--prio-color); }
+
 /* Badge: small counters and remaining-time labels */
 .badge {
   display: inline-flex;
@@ -606,7 +626,7 @@ main { padding: var(--space-4) var(--space-5); }
 
 #task-table {
   width: 100%;
-  min-width: 900px;
+  min-width: 980px;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -656,12 +676,13 @@ main { padding: var(--space-4) var(--space-5); }
 th.is-sorted .th-sort { color: var(--color-text); }
 th.is-sorted .sort-icon { opacity: 1; color: var(--color-primary); }
 
-.col-alan { width: 17%; }
+.col-alan { width: 15%; }
 .col-gorev { width: auto; }
-.col-sahip { width: 150px; }
-.col-durum { width: 150px; }
-.col-tarih { width: 150px; }
-.col-kalan { width: 120px; }
+.col-sahip { width: 140px; }
+.col-durum { width: 144px; }
+.col-oncelik { width: 140px; }
+.col-tarih { width: 140px; }
+.col-kalan { width: 112px; }
 .col-actions { width: 52px; }
 
 #task-table td {
@@ -743,6 +764,13 @@ select.cell-durum {
   border-radius: var(--radius-full);
 }
 select.cell-durum:hover, select.cell-durum:focus { padding-right: 26px; background-color: var(--tone-bg); background-size: 8px 8px, 14px 14px; border-color: var(--tone-dot); }
+
+/* Öncelik: level icon + plain select */
+.prio-cell { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.prio-icon { display: inline-flex; flex: none; margin-left: var(--space-1); color: var(--prio-color, var(--color-text-muted)); }
+.prio-cell select { font-weight: 500; }
+.prio-cell.is-empty select { color: var(--color-text-muted); font-weight: 400; }
+#task-table tr.is-done .prio-icon { opacity: .6; }
 
 /* Date: native picker, "—" when empty */
 .date-cell { position: relative; }
@@ -925,6 +953,11 @@ body.is-dragging .board-column { border-color: var(--color-border-strong); borde
 .card.is-done { background: var(--color-surface-muted); box-shadow: none; }
 .card.is-done .card-title { color: var(--color-text-muted); text-decoration: line-through; text-decoration-color: var(--color-border-strong); }
 .card.is-done .card-alan, .card.is-done .avatar { opacity: .7; }
+
+.card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); width: 100%; min-width: 0; }
+.card-top:empty { display: none; }
+.card-top .prio-chip { flex: none; margin-left: auto; }
+.card.is-done .prio-chip { opacity: .7; }
 
 .card-title { width: 100%; font-weight: 600; line-height: 1.4; color: var(--color-text); overflow-wrap: anywhere; }
 .card-title.is-empty { font-weight: 500; font-style: italic; color: var(--color-text-muted); }
@@ -1122,9 +1155,9 @@ body.is-dragging .board-column { border-color: var(--color-border-strong); borde
 /* ==========================================================================
    11. Responsive
    ========================================================================== */
-@media (max-width: 1023px) {
+@media (max-width: 1279px) {
   /* keep the Görev column readable; the table scrolls horizontally instead */
-  #task-table { min-width: 1000px; }
+  #task-table { min-width: 1100px; }
 }
 
 @media (max-width: 768px) {

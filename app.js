@@ -17,6 +17,17 @@
   const LIST_LABELS = { alan: 'Alan', sahip: 'Sahip', durum: 'Durum' };
   const LIST_KEYS = Object.keys(LIST_LABELS);
 
+  // Fixed priority levels (not editable in settings). Ordered from highest to lowest.
+  const PRIORITIES = ['Yüksek', 'Orta', 'Düşük'];
+  const DEFAULT_PRIORITY = 'Orta';
+  const PRIORITY_STYLE = {
+    'Yüksek': { cls: 'prio-high', icon: 'prio-high' },
+    'Orta': { cls: 'prio-medium', icon: 'prio-medium' },
+    'Düşük': { cls: 'prio-low', icon: 'prio-low' },
+  };
+  const PRIORITY_ALIASES = { high: 'Yüksek', medium: 'Orta', low: 'Düşük' };
+  const NO_PRIORITY_LABEL = 'Belirtilmemiş';
+
   const DEFAULT_LISTS = {
     alan: ['Skymate', 'SkyBee', 'Copilot Specialization', 'Fabric Specialization', 'Bulut360 - CRM', 'İş Ortağı Portalı', 'Sertifikasyon', 'Copilot Engage'],
     sahip: ['Murat', 'Serhat', 'Kaan', 'FurkanC', 'FurkanS', 'Erdem'],
@@ -161,6 +172,14 @@
     return JSON.parse(JSON.stringify(obj));
   }
 
+  // A missing value means the default; an explicit empty string means "no priority".
+  function normalizePriority(value) {
+    if (value === undefined || value === null) return DEFAULT_PRIORITY;
+    const s = str(value);
+    if (!s) return '';
+    return PRIORITIES.find((p) => sameText(p, s)) || PRIORITY_ALIASES[s.toLowerCase()] || DEFAULT_PRIORITY;
+  }
+
   function normalize(raw) {
     if (!raw || typeof raw !== 'object' || !raw.lists || typeof raw.lists !== 'object' || !Array.isArray(raw.tasks)) {
       throw new Error('Geçersiz dosya biçimi: "lists" ve "tasks" alanları bulunamadı.');
@@ -188,6 +207,7 @@
         gorev: str(t.gorev),
         sahip: str(t.sahip),
         durum,
+        oncelik: normalizePriority(t.oncelik),
         tamamlanmaTarihi: isIsoDate(t.tamamlanmaTarihi) ? t.tamamlanmaTarihi : '',
         createdAt: created,
         updatedAt: str(t.updatedAt) || created,
@@ -315,7 +335,7 @@
     }
     const q = ui.search.trim().toLocaleLowerCase('tr');
     if (q) {
-      const hay = [t.alan, t.gorev, t.sahip, t.durum].join(' ').toLocaleLowerCase('tr');
+      const hay = [t.alan, t.gorev, t.sahip, t.durum, t.oncelik].join(' ').toLocaleLowerCase('tr');
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -333,6 +353,10 @@
       else res = av < bv ? -1 : av > bv ? 1 : 0;
     } else if (key === 'durum') {
       res = data.lists.durum.indexOf(a.durum) - data.lists.durum.indexOf(b.durum);
+    } else if (key === 'oncelik') {
+      if (!a.oncelik && b.oncelik) return 1; // no priority always last
+      if (a.oncelik && !b.oncelik) return -1;
+      res = PRIORITIES.indexOf(a.oncelik) - PRIORITIES.indexOf(b.oncelik);
     } else {
       const av = a[key] || '';
       const bv = b[key] || '';
@@ -415,6 +439,32 @@
     return select;
   }
 
+  function fillPriorityOptions(select, value) {
+    select.replaceChildren(
+      el('option', { value: '', textContent: NO_PRIORITY_LABEL }),
+      ...PRIORITIES.map((p) => el('option', { value: p, textContent: p })),
+    );
+    select.value = value || '';
+  }
+
+  function priorityIcon(value) {
+    const style = PRIORITY_STYLE[value];
+    return style ? icon(style.icon, 'icon-sm') : icon('prio-none', 'icon-sm');
+  }
+
+  function updatePriorityCell(cell, value) {
+    for (const s of Object.values(PRIORITY_STYLE)) cell.classList.remove(s.cls);
+    if (PRIORITY_STYLE[value]) cell.classList.add(PRIORITY_STYLE[value].cls);
+    cell.classList.toggle('is-empty', !value);
+    cell.querySelector('.prio-icon').replaceChildren(priorityIcon(value));
+  }
+
+  function buildPriorityChip(value) {
+    if (!value) return null;
+    return el('span', { class: `prio-chip ${PRIORITY_STYLE[value].cls}`, title: `Öncelik: ${value}` },
+      priorityIcon(value), value);
+  }
+
   function buildRow(task) {
     const tr = el('tr', { dataset: { id: task.id } });
     const update = (field) => (value) => onFieldChange(task, field, value, tr);
@@ -452,12 +502,23 @@
       el('td', { class: 'cell-gorev-td' }, gorevInput),
       el('td', {}, el('div', { class: 'owner-cell' }, buildAvatar(task.sahip, 'avatar-sm'), buildSelect('sahip', task, update('sahip')))),
       el('td', {}, buildSelect('durum', task, update('durum'))),
+      el('td', {}, buildPriorityCell(task, update('oncelik'))),
       el('td', {}, el('div', { class: 'date-cell' }, dateInput, el('span', { class: 'date-empty', 'aria-hidden': 'true', textContent: '—' }))),
       el('td', { class: 'kalan' }),
       el('td', { class: 'actions' }, deleteBtn),
     );
     applyRowState(tr, task);
     return tr;
+  }
+
+  function buildPriorityCell(task, onChange) {
+    const select = el('select', {
+      class: 'cell-oncelik cell-select',
+      'aria-label': 'Öncelik',
+      onchange: (e) => onChange(e.target.value),
+    });
+    fillPriorityOptions(select, task.oncelik);
+    return el('div', { class: 'prio-cell' }, el('span', { class: 'prio-icon', 'aria-hidden': 'true' }), select);
   }
 
   function applyRowState(tr, task) {
@@ -475,6 +536,7 @@
     setTone(durum, toneFor('durum', task.durum));
     tr.querySelector('select.cell-sahip').classList.toggle('is-empty', !task.sahip);
     updateAvatar(tr.querySelector('.owner-cell .avatar'), task.sahip);
+    updatePriorityCell(tr.querySelector('.prio-cell'), task.oncelik);
     tr.querySelector('.date-cell').classList.toggle('is-empty', !task.tamamlanmaTarihi);
 
     const kalan = tr.querySelector('td.kalan');
@@ -494,7 +556,7 @@
     if (!box.childElementCount) {
       for (let i = 0; i < 5; i++) {
         box.append(el('div', { class: 'skeleton-row' },
-          ...['14%', '38%', '12%', '12%', '10%', '8%'].map((w) => el('span', { class: 'skeleton', style: `width:${w}` }))));
+          ...['14%', '34%', '12%', '12%', '8%', '10%', '8%'].map((w) => el('span', { class: 'skeleton', style: `width:${w}` }))));
       }
     }
   }
@@ -549,7 +611,7 @@
       draggable: true,
       tabIndex: 0,
       title: 'Düzenlemek için tıklayın, durumunu değiştirmek için sürükleyin',
-      'aria-label': `${task.gorev || 'İsimsiz görev'}${task.sahip ? `, ${task.sahip}` : ''}${label && !done ? `, ${label}` : ''}`,
+      'aria-label': `${task.gorev || 'İsimsiz görev'}${task.oncelik ? `, ${task.oncelik} öncelik` : ''}${task.sahip ? `, ${task.sahip}` : ''}${label && !done ? `, ${label}` : ''}`,
       dataset: { id: task.id },
       onclick: () => openTaskDialog(task),
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskDialog(task); } },
@@ -561,7 +623,9 @@
       },
       ondragend: () => { card.classList.remove('dragging'); document.body.classList.remove('is-dragging'); },
     },
-    task.alan ? el('span', { class: `tag card-alan tone-${toneFor('alan', task.alan)}`, textContent: task.alan }) : null,
+    el('div', { class: 'card-top' },
+      task.alan ? el('span', { class: `tag card-alan tone-${toneFor('alan', task.alan)}`, textContent: task.alan }) : null,
+      buildPriorityChip(task.oncelik)),
     el('div', { class: `card-title${task.gorev ? '' : ' is-empty'}`, textContent: task.gorev || '(İsimsiz görev)' }),
     meta);
     return card;
@@ -674,6 +738,7 @@
     $('#task-dialog-title').textContent = task ? 'Görevi Düzenle' : 'Yeni Görev';
     form.elements.gorev.value = draft.gorev;
     for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key], EMPTY_LABELS[key]);
+    fillPriorityOptions(form.elements.oncelik, draft.oncelik);
     form.elements.tamamlanmaTarihi.value = draft.tamamlanmaTarihi;
     const del = $('#task-delete');
     del.hidden = !task;
@@ -713,6 +778,7 @@
       alan: form.elements.alan.value,
       sahip: form.elements.sahip.value,
       durum: form.elements.durum.value,
+      oncelik: normalizePriority(form.elements.oncelik.value),
       tamamlanmaTarihi: isIsoDate(tarih) ? tarih : '',
     };
     let task = editingTask;
@@ -837,6 +903,7 @@
       gorev: '',
       sahip: ui.filters.sahip || '',
       durum: ui.filters.durum && ui.filters.durum !== DONE ? ui.filters.durum : firstOpenStatus(),
+      oncelik: DEFAULT_PRIORITY,
       tamamlanmaTarihi: '',
       createdAt: ts,
       updatedAt: ts,
@@ -1076,7 +1143,7 @@
       alert(err.message);
       return;
     }
-    const headers = ['Alan', 'Görev', 'Sahip', 'Durum', 'Tamamlanma Tarihi', 'Tamamlandığı Zaman'];
+    const headers = ['Alan', 'Görev', 'Sahip', 'Durum', 'Öncelik', 'Tamamlanma Tarihi', 'Tamamlandığı Zaman'];
     const sorted = [...data.tasks].sort((a, b) => {
       const ad = a.durum === DONE ? 1 : 0;
       const bd = b.durum === DONE ? 1 : 0;
@@ -1087,14 +1154,14 @@
       ui.sort = prevSort;
       return r;
     });
-    const aoa = [headers, ...sorted.map((t) => [t.alan, t.gorev, t.sahip, t.durum, '', t.completedAt ? formatDateTime(t.completedAt) : ''])];
+    const aoa = [headers, ...sorted.map((t) => [t.alan, t.gorev, t.sahip, t.durum, t.oncelik, '', t.completedAt ? formatDateTime(t.completedAt) : ''])];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     sorted.forEach((t, i) => {
       if (!t.tamamlanmaTarihi) return;
-      const ref = XLSX.utils.encode_cell({ r: i + 1, c: 4 });
+      const ref = XLSX.utils.encode_cell({ r: i + 1, c: 5 });
       ws[ref] = { t: 'n', v: excelSerial(t.tamamlanmaTarihi), z: 'dd.mm.yyyy' };
     });
-    ws['!cols'] = [{ wch: 24 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 20 }];
+    ws['!cols'] = [{ wch: 24 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 20 }];
     ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(sorted.length, 1), c: headers.length - 1 } }) };
 
     const maxLen = Math.max(...LIST_KEYS.map((k) => data.lists[k].length));
@@ -1114,9 +1181,16 @@
   const taskValue = (t) => {
     const v = { id: t.id, gorev: t.gorev, alan: t.alan, sahip: t.sahip, durum: t.durum, tamamlanmaTarihi: t.tamamlanmaTarihi, createdAt: t.createdAt, updatedAt: t.updatedAt };
     if (t.completedAt) v.completedAt = t.completedAt;
+    // The default priority is stored as a missing field, so records written before priorities
+    // existed keep their signature and older clients/rules keep accepting default tasks.
+    if (t.oncelik !== DEFAULT_PRIORITY) v.oncelik = t.oncelik;
     return v;
   };
-  const taskSig = (t) => JSON.stringify([t.gorev, t.alan, t.sahip, t.durum, t.tamamlanmaTarihi, t.completedAt || '']);
+  const taskSig = (t) => {
+    const sig = [t.gorev, t.alan, t.sahip, t.durum, t.tamamlanmaTarihi, t.completedAt || ''];
+    if (t.oncelik !== DEFAULT_PRIORITY) sig.push(t.oncelik);
+    return JSON.stringify(sig);
+  };
   const listSig = (values) => values.join('\n');
   const taskPath = (id) => `tasks/${window.TaskCloud.encodeKey(id)}`;
 
@@ -1129,6 +1203,7 @@
       alan: str(v.alan),
       sahip: str(v.sahip),
       durum: sameText(durum, DONE) ? DONE : durum,
+      oncelik: normalizePriority(v.oncelik),
       tamamlanmaTarihi: isIsoDate(tarih) ? tarih : '',
       createdAt: str(v.createdAt) || nowIso(),
       updatedAt: str(v.updatedAt) || nowIso(),

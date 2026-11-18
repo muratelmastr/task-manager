@@ -7,12 +7,13 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 ## Özellikler
 
 - **Liste / Board görünümü:** Sayfanın üstündeki **☰ Liste | ▦ Board** düğmesiyle geçiş yapılır; seçim hatırlanır.
-  - **Liste:** Excel benzeri satır içi düzenleme; Alan, Görev, Sahip, Durum ve Tamamlanma Tarihi doğrudan tabloda düzenlenir.
+  - **Liste:** Excel benzeri satır içi düzenleme; Alan, Görev, Sahip, Durum, Öncelik ve Tamamlanma Tarihi doğrudan tabloda düzenlenir.
   - **Board:** Görevler Durum sütunlarında kart olarak görünür. Kartı başka sütuna **sürükleyerek** durumunu değiştirebilir, karta **tıklayarak** düzenleyebilirsiniz. Filtreler, arama ve renklendirme board'da da geçerlidir; gizli tamamlanan görev sayısı "Tamamlandı" sütununda gösterilir.
 - **Parametrik listeler:** Alan, Sahip ve Durum değerleri listeden seçilir; **⚙ Ayarlar** ekranından eklenip yeniden adlandırılabilir, sıralanabilir ve silinebilir.
   - Yeniden adlandırma mevcut görevlere de yansır.
   - Görevlerde kullanılan değerler silinemez.
   - `Tamamlandı` durumu sabittir; değiştirilemez/silinemez.
+- **Öncelik:** Her görevin önceliği **Yüksek / Orta / Düşük** olarak seçilir (sabit liste). Yeni görevler varsayılan olarak **Orta** ile açılır; zorunlu değildir, "Belirtilmemiş" bırakılabilir. Board'da kartın sağ üst köşesinde, listede ayrı bir sütunda gösterilir ve sütun başlığından sıralanabilir.
 - **Tamamlanan görevler silinmez:** Sayfa açıldığında yalnızca `Durum ≠ Tamamlandı` olan görevler görünür. **Tamamlananları göster** seçeneği (veya Durum filtresinde `Tamamlandı`) ile görülebilir. Tamamlanan görevlerin silme butonu kapalıdır; açık görevler onay ile silinebilir.
 - **Tarih uyarıları** (yalnızca tamamlanmamış görevler için):
   - 🔴 Kırmızı: Tamamlanma tarihine **3 günden az** kaldı veya tarih **geçti**
@@ -40,8 +41,10 @@ Veri yapısı:
 
 | Yol | İçerik |
 |---|---|
-| `/tasks/{id}` | `id, gorev, alan, sahip, durum, tamamlanmaTarihi (YYYY-MM-DD), completedAt, createdAt, updatedAt` |
+| `/tasks/{id}` | `id, gorev, alan, sahip, durum, oncelik, tamamlanmaTarihi (YYYY-MM-DD), completedAt, createdAt, updatedAt` |
 | `/lists/{alan\|sahip\|durum}` | Değerler, her satırda bir değer olacak şekilde metin |
+
+> `oncelik` alanı yalnızca **Orta** dışındaki değerler için yazılır (`Yüksek`, `Düşük` veya boş = belirtilmemiş); alan yoksa öncelik **Orta** kabul edilir.
 
 > Bu tarayıcıda daha önce yerel olarak girilmiş görevler varsa, ilk açılışta "ortak listeye aktarılsın mı?" diye sorulur.
 
