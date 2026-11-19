@@ -19,7 +19,7 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 - **Tarih uyarıları** (yalnızca tamamlanmamış görevler için):
   - 🔴 Kırmızı: Tamamlanma tarihine **3 günden az** kaldı veya tarih **geçti**
   - 🟡 Sarı: Tamamlanma tarihine **1 haftadan az** kaldı
-- **Filtreleme ve sıralama:** Alan/Sahip/Durum filtreleri, metin arama ve sütun başlığına tıklayarak sıralama.
+- **Filtreleme ve sıralama:** Alan/Sahip/Durum filtrelerinde **birden fazla değer** işaretlenebilir (aynı filtrede seçilenlerden herhangi biri, farklı filtreler birlikte uygulanır; hiçbiri seçili değilse "Tümü"). Metin arama ve sütun başlığına tıklayarak sıralama. Board'da Durum filtresi yalnızca seçilen sütunları gösterir.
 - **Yedekleme:** **Yedek Al (JSON)** / **Yedekten Yükle** ve **Excel'e Aktar** (.xlsx – "Görevler" ve "Listeler" sayfaları).
 
 

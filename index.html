@@ -77,9 +77,18 @@
           <svg class="icon search-icon" aria-hidden="true"><use href="#i-search"/></svg>
           <input type="search" id="search" class="input" placeholder="Görev ara…" aria-label="Görev ara" autocomplete="off">
         </div>
-        <label class="filter-control"><span class="filter-label">Alan</span><select id="filter-alan" data-filter="alan"></select></label>
-        <label class="filter-control"><span class="filter-label">Sahip</span><select id="filter-sahip" data-filter="sahip"></select></label>
-        <label class="filter-control"><span class="filter-label">Durum</span><select id="filter-durum" data-filter="durum"></select></label>
+        <div class="filter-control" data-filter="alan">
+          <button type="button" id="filter-alan" class="filter-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="filter-alan-panel"><span class="filter-label">Alan</span><span class="filter-value">Tümü</span><svg class="icon icon-sm filter-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          <div id="filter-alan-panel" class="filter-panel" tabindex="-1" role="group" aria-label="Alan filtresi" hidden></div>
+        </div>
+        <div class="filter-control" data-filter="sahip">
+          <button type="button" id="filter-sahip" class="filter-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="filter-sahip-panel"><span class="filter-label">Sahip</span><span class="filter-value">Tümü</span><svg class="icon icon-sm filter-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          <div id="filter-sahip-panel" class="filter-panel" tabindex="-1" role="group" aria-label="Sahip filtresi" hidden></div>
+        </div>
+        <div class="filter-control" data-filter="durum">
+          <button type="button" id="filter-durum" class="filter-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="filter-durum-panel"><span class="filter-label">Durum</span><span class="filter-value">Tümü</span><svg class="icon icon-sm filter-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          <div id="filter-durum-panel" class="filter-panel" tabindex="-1" role="group" aria-label="Durum filtresi" hidden></div>
+        </div>
         <label class="switch"><input type="checkbox" id="show-completed"><span class="switch-track" aria-hidden="true"></span><span>Tamamlananları göster</span></label>
         <button type="button" id="btn-clear-filters" class="btn btn-link" hidden><svg class="icon icon-sm" aria-hidden="true"><use href="#i-x"/></svg>Filtreleri temizle</button>
       </div>
