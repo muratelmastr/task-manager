@@ -206,6 +206,7 @@ body {
 .input:hover, .select:hover { border-color: #98a2b3; }
 .input:focus, .select:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--focus-ring); }
 .input:disabled, .select:disabled { color: var(--color-text-muted); background-color: var(--color-surface-hover); box-shadow: none; cursor: not-allowed; }
+.input[readonly] { color: var(--color-text-secondary); background-color: var(--color-surface-muted); box-shadow: none; cursor: default; font-variant-numeric: tabular-nums; }
 .input[aria-invalid="true"] { border-color: var(--color-danger); }
 .input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px rgba(217, 45, 32, .2); }
 

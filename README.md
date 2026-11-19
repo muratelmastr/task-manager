@@ -14,6 +14,7 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
   - Görevlerde kullanılan değerler silinemez.
   - `Tamamlandı` durumu sabittir; değiştirilemez/silinemez.
 - **Öncelik:** Her görevin önceliği **Yüksek / Orta / Düşük** olarak seçilir (sabit liste). Yeni görevler varsayılan olarak **Orta** ile açılır; zorunlu değildir, "Belirtilmemiş" bırakılabilir. Board'da kartın sağ üst köşesinde, listede ayrı bir sütunda gösterilir ve sütun başlığından sıralanabilir.
+- **Oluşturma Tarihi:** Görev oluşturulduğu anda tarih ve saat otomatik kaydedilir; değiştirilemez. Listede ve kart üzerinde gösterilmez, board'da karta tıklayınca açılan görev penceresinde görüntülenir.
 - **Tamamlanan görevler silinmez:** Sayfa açıldığında yalnızca `Durum ≠ Tamamlandı` olan görevler görünür. **Tamamlananları göster** seçeneği (veya Durum filtresinde `Tamamlandı`) ile görülebilir. Tamamlanan görevlerin silme butonu kapalıdır; açık görevler onay ile silinebilir.
 - **Tarih uyarıları** (yalnızca tamamlanmamış görevler için):
   - 🔴 Kırmızı: Tamamlanma tarihine **3 günden az** kaldı veya tarih **geçti**
