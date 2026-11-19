@@ -544,9 +544,8 @@ main { padding: var(--space-4) var(--space-5); }
 .filter-control {
   position: relative;
   display: inline-flex;
-  align-items: center;
+  align-items: stretch;
   height: var(--control-h);
-  padding-left: var(--space-3);
   font-size: var(--font-sm);
   color: var(--color-text-muted);
   background: var(--color-surface);
@@ -556,23 +555,63 @@ main { padding: var(--space-4) var(--space-5); }
   transition: border-color var(--duration-fast) ease, background-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
 }
 .filter-control:hover { border-color: #98a2b3; }
-.filter-control:focus-within { border-color: var(--color-primary); box-shadow: var(--focus-ring); }
+.filter-control:has(> .filter-trigger:focus-visible), .filter-control:has(> .filter-trigger[aria-expanded="true"]) { border-color: var(--color-primary); box-shadow: var(--focus-ring); }
 .filter-label::after { content: ":"; }
-.filter-control select {
-  height: 100%;
-  max-width: 180px;
-  padding: 0 30px 0 6px;
+.filter-trigger {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 8px 0 var(--space-3);
   font: inherit;
-  font-weight: 600;
-  color: var(--color-text);
-  background: var(--chevron) no-repeat right 8px center / 16px;
+  color: inherit;
+  background: transparent;
   border: 0;
-  appearance: none;
+  border-radius: inherit;
   cursor: pointer;
 }
-.filter-control select:focus { outline: none; }
+.filter-trigger:focus-visible { outline: none; }
+.filter-value { flex: 1; max-width: 180px; overflow: hidden; font-weight: 600; color: var(--color-text); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chevron { flex: none; margin-left: 6px; color: var(--color-text-muted); transition: transform var(--duration) var(--ease); }
+.filter-trigger[aria-expanded="true"] .filter-chevron { transform: rotate(180deg); }
 .filter-control.is-active { color: var(--color-primary); background: var(--color-primary-soft); border-color: var(--color-primary-border); }
-.filter-control.is-active select { color: var(--color-primary-hover); }
+.filter-control.is-active .filter-value { color: var(--color-primary-hover); }
+
+.filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -1px;
+  z-index: 60;
+  min-width: max(100%, 220px);
+  max-width: calc(100vw - 32px);
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+  padding: var(--space-1);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  transform-origin: top left;
+  animation: menu-in var(--duration) var(--ease);
+}
+.filter-panel:focus { outline: none; }
+.filter-panel.align-right { right: -1px; left: auto; transform-origin: top right; }
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-h);
+  padding: 4px 10px;
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+.filter-option:hover, .filter-option:focus-within { background: var(--color-surface-hover); }
+.filter-option input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary); cursor: pointer; }
+.filter-option input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.filter-option span { overflow-wrap: anywhere; }
 
 .toolbar .switch { height: var(--control-h); font-size: var(--font-sm); }
 .toolbar .btn-link { height: var(--control-h); gap: 4px; font-size: var(--font-sm); }
@@ -1211,7 +1250,7 @@ body.is-dragging .board-column { border-color: var(--color-border-strong); borde
     white-space: nowrap;
   }
   .filter-control { order: 2; flex: 1 1 140px; }
-  .filter-control select { flex: 1; max-width: none; }
+  .filter-value { max-width: none; }
   .toolbar .switch { order: 3; }
   #btn-clear-filters { order: 4; }
   .stat-hint { display: none; }

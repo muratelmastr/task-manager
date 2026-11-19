@@ -303,7 +303,7 @@
     shownCount: 0,
     showCompleted: false,
     search: '',
-    filters: { alan: '', sahip: '', durum: '' },
+    filters: emptyFilters(), // selected values per list; empty = all
     sort: { key: 'tamamlanmaTarihi', dir: 1 },
     pinned: new Set(), // newly added rows stay visible and on top until filters/sorting change
     loadingShown: false,
@@ -327,11 +327,17 @@
 
   // ---------- Filtering & sorting ----------
 
+  function emptyFilters() {
+    return { alan: [], sahip: [], durum: [] };
+  }
+
+  const doneFiltered = () => ui.filters.durum.includes(DONE);
+
   function matchesFilters(t, { includeDone = false } = {}) {
-    const showDone = includeDone || ui.showCompleted || ui.filters.durum === DONE;
+    const showDone = includeDone || ui.showCompleted || doneFiltered();
     if (t.durum === DONE && !showDone) return false;
     for (const key of LIST_KEYS) {
-      if (ui.filters[key] && t[key] !== ui.filters[key]) return false;
+      if (ui.filters[key].length && !ui.filters[key].includes(t[key])) return false;
     }
     const q = ui.search.trim().toLocaleLowerCase('tr');
     if (q) {
@@ -404,17 +410,35 @@
 
   function renderFilterOptions() {
     for (const key of LIST_KEYS) {
-      const select = $(`#filter-${key}`);
       const values = data.lists[key];
-      if (ui.filters[key] && !values.includes(ui.filters[key])) ui.filters[key] = '';
-      select.replaceChildren(
-        el('option', { value: '', textContent: 'Tümü' }),
-        ...values.map((v) => el('option', { value: v, textContent: v })),
+      ui.filters[key] = values.filter((v) => ui.filters[key].includes(v)); // list order, drop removed values
+      const panel = $(`#filter-${key}-panel`);
+      const active = document.activeElement;
+      const focused = panel.contains(active) && active.tagName === 'INPUT' ? active.value : null;
+      const option = (value, label, extra = {}) => el('label', { class: 'filter-option' },
+        el('input', { type: 'checkbox', value, ...extra }),
+        el('span', { textContent: label }));
+      panel.replaceChildren(
+        option('', 'Tümü', { dataset: { all: '1' } }),
+        el('div', { class: 'menu-separator', role: 'separator' }),
+        ...values.map((v) => option(v, v)),
       );
-      select.value = ui.filters[key];
+      syncFilterControl(key);
+      if (focused !== null) panel.querySelector(`input[value="${CSS.escape(focused)}"]`)?.focus();
     }
     $('#show-completed').checked = ui.showCompleted;
     $('#search').value = ui.search;
+  }
+
+  function syncFilterControl(key) {
+    const selected = ui.filters[key];
+    for (const box of $(`#filter-${key}-panel`).querySelectorAll('input')) {
+      box.checked = box.dataset.all ? selected.length === 0 : selected.includes(box.value);
+    }
+    const trigger = $(`#filter-${key}`);
+    trigger.querySelector('.filter-value').textContent =
+      selected.length === 0 ? 'Tümü' : selected.length === 1 ? selected[0] : `${selected.length} seçili`;
+    trigger.title = selected.length > 1 ? selected.join(', ') : '';
   }
 
   const EMPTY_LABELS = { alan: '— Seçiniz —', sahip: 'Atanmamış', durum: '— Seçiniz —' };
@@ -639,7 +663,7 @@
   }
 
   function buildColumn(status, tasks) {
-    const showDone = ui.showCompleted || ui.filters.durum === DONE;
+    const showDone = ui.showCompleted || doneFiltered();
     const doneHidden = status === DONE && !showDone;
     const cards = el('div', { class: 'board-cards' });
     let count = tasks.length;
@@ -707,11 +731,11 @@
     }
     const tasks = visibleTasks();
     ui.shownCount = tasks.length;
-    const statuses = ui.filters.durum ? [ui.filters.durum] : data.lists.durum;
+    const statuses = ui.filters.durum.length ? ui.filters.durum : data.lists.durum;
     board.replaceChildren(...statuses.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
   }
   function isHiddenWhenDone() {
-    return !ui.showCompleted && ui.filters.durum !== DONE;
+    return !ui.showCompleted && !doneFiltered();
   }
 
   function moveTaskToStatus(id, status) {
@@ -828,12 +852,12 @@
   }
 
   function hasActiveFilters() {
-    return !!(ui.search.trim() || ui.showCompleted || LIST_KEYS.some((k) => ui.filters[k]));
+    return !!(ui.search.trim() || ui.showCompleted || LIST_KEYS.some((k) => ui.filters[k].length));
   }
 
   function updateFilterUi() {
     for (const key of LIST_KEYS) {
-      $(`#filter-${key}`).closest('.filter-control').classList.toggle('is-active', !!ui.filters[key]);
+      $(`#filter-${key}`).closest('.filter-control').classList.toggle('is-active', ui.filters[key].length > 0);
     }
     $('#btn-clear-filters').hidden = !hasActiveFilters();
   }
@@ -902,10 +926,10 @@
     const ts = nowIso();
     return {
       id: uid(),
-      alan: ui.filters.alan || '',
+      alan: ui.filters.alan[0] || '',
       gorev: '',
-      sahip: ui.filters.sahip || '',
-      durum: ui.filters.durum && ui.filters.durum !== DONE ? ui.filters.durum : firstOpenStatus(),
+      sahip: ui.filters.sahip[0] || '',
+      durum: ui.filters.durum.find((s) => s !== DONE) || firstOpenStatus(),
       oncelik: DEFAULT_PRIORITY,
       tamamlanmaTarihi: '',
       createdAt: ts,
@@ -958,7 +982,7 @@
     const idx = data.lists[key].indexOf(oldValue);
     data.lists[key][idx] = newValue;
     for (const t of data.tasks) if (t[key] === oldValue) t[key] = newValue;
-    if (ui.filters[key] === oldValue) ui.filters[key] = newValue;
+    ui.filters[key] = ui.filters[key].map((v) => (v === oldValue ? newValue : v));
     save();
     return true;
   }
@@ -1216,7 +1240,7 @@
 
   const isEditing = () => {
     const a = document.activeElement;
-    return !!(a && a.closest && a.closest('#task-body, dialog')) || $('#task-dialog').open || $('#settings-dialog').open;
+    return !!(a && a.closest && a.closest('#task-body, dialog, .filter-panel')) || $('#task-dialog').open || $('#settings-dialog').open;
   };
 
   function renderWhenIdle() {
@@ -1487,6 +1511,73 @@
     document.addEventListener('click', (e) => { if (!e.target.closest('#data-menu')) close(); });
   }
 
+  function setupFilterMenus() {
+    const controls = [...document.querySelectorAll('.filter-control[data-filter]')];
+    const parts = (control) => ({ trigger: control.querySelector('.filter-trigger'), panel: control.querySelector('.filter-panel') });
+    const boxes = (panel) => [...panel.querySelectorAll('input[type=checkbox]')];
+
+    function close(control, returnFocus = false) {
+      const { trigger, panel } = parts(control);
+      if (panel.hidden) return;
+      panel.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+      if (returnFocus) trigger.focus();
+    }
+    function open(control, focusIndex = 0) {
+      controls.forEach((c) => c !== control && close(c));
+      const { trigger, panel } = parts(control);
+      panel.hidden = false;
+      panel.classList.remove('align-right');
+      if (panel.getBoundingClientRect().right > document.documentElement.clientWidth - 8) panel.classList.add('align-right');
+      trigger.setAttribute('aria-expanded', 'true');
+      const all = boxes(panel);
+      all[(focusIndex + all.length) % all.length]?.focus();
+    }
+
+    for (const control of controls) {
+      const key = control.dataset.filter;
+      const { trigger, panel } = parts(control);
+      trigger.addEventListener('click', () => (panel.hidden ? open(control) : close(control)));
+      trigger.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); open(control, 0); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); open(control, -1); }
+      });
+      panel.addEventListener('change', (e) => {
+        const box = e.target;
+        if (box.dataset.all) {
+          ui.filters[key] = [];
+        } else {
+          const picked = new Set(boxes(panel).filter((b) => b.checked && !b.dataset.all).map((b) => b.value));
+          ui.filters[key] = data.lists[key].filter((v) => picked.has(v));
+        }
+        syncFilterControl(key);
+        resetPinned();
+        renderView();
+        renderSummary();
+        updateFilterUi();
+      });
+      panel.addEventListener('keydown', (e) => {
+        const all = boxes(panel);
+        const idx = all.indexOf(document.activeElement);
+        const moves = { ArrowDown: idx + 1, ArrowUp: idx - 1, Home: 0, End: all.length - 1 };
+        if (e.key in moves) {
+          e.preventDefault();
+          all[(moves[e.key] + all.length) % all.length].focus();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          close(control, true);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          document.activeElement.click();
+        }
+      });
+      control.addEventListener('focusout', (e) => { if (!control.contains(e.relatedTarget)) close(control); });
+    }
+    document.addEventListener('click', (e) => {
+      controls.forEach((c) => { if (!c.contains(e.target)) close(c); });
+    });
+  }
+
   function setupHeader() {
     const header = $('#app-header');
     const onScroll = () => header.classList.toggle('is-scrolled', window.scrollY > 4);
@@ -1530,15 +1621,7 @@
       updateFilterUi();
     });
 
-    document.querySelectorAll('select[data-filter]').forEach((select) => {
-      select.addEventListener('change', (e) => {
-        ui.filters[e.target.dataset.filter] = e.target.value;
-        resetPinned();
-        renderView();
-        renderSummary();
-        updateFilterUi();
-      });
-    });
+    setupFilterMenus();
 
     $('#show-completed').addEventListener('change', (e) => {
       ui.showCompleted = e.target.checked;
@@ -1550,7 +1633,7 @@
 
     $('#btn-clear-filters').addEventListener('click', () => {
       ui.search = '';
-      ui.filters = { alan: '', sahip: '', durum: '' };
+      ui.filters = emptyFilters();
       ui.showCompleted = false;
       resetPinned();
       render();
