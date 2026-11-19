@@ -740,6 +740,9 @@
     for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key], EMPTY_LABELS[key]);
     fillPriorityOptions(form.elements.oncelik, draft.oncelik);
     form.elements.tamamlanmaTarihi.value = draft.tamamlanmaTarihi;
+    // createdAt is set automatically on creation; new tasks don't have one yet.
+    $('#task-created-field').hidden = !task;
+    $('#task-created').value = task ? (formatDateTime(task.createdAt) || '—') : '';
     const del = $('#task-delete');
     del.hidden = !task;
     del.disabled = !!task && task.durum === DONE;
