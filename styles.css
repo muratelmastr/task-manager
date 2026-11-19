@@ -646,6 +646,12 @@ main { padding: var(--space-4) var(--space-5); }
 .stat.is-zero { color: var(--color-text-muted); background: var(--color-surface); border-color: var(--color-border); }
 .stat.is-zero .stat-value { color: var(--color-text-muted); }
 .stat.is-zero .status-dot { background: var(--color-border-strong); }
+button.stat { font: inherit; font-size: var(--font-sm); cursor: pointer; transition: box-shadow var(--duration-fast) ease, filter var(--duration-fast) ease; }
+button.stat:hover:not(:disabled) { filter: brightness(.97); box-shadow: var(--shadow-sm); }
+button.stat:disabled { cursor: default; }
+button.stat[aria-pressed="true"] { border-width: 2px; padding: 0 9px; font-weight: 600; box-shadow: var(--shadow-sm); }
+button.stat.count-red[aria-pressed="true"] { border-color: var(--color-danger); }
+button.stat.count-yellow[aria-pressed="true"] { border-color: var(--color-warning); }
 
 /* ==========================================================================
    7. List view

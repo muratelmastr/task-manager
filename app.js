@@ -304,6 +304,7 @@
     showCompleted: false,
     search: '',
     filters: emptyFilters(), // selected values per list; empty = all
+    due: null, // 'red' (kritik) | 'yellow' (yaklaşan) | null
     sort: { key: 'tamamlanmaTarihi', dir: 1 },
     pinned: new Set(), // newly added rows stay visible and on top until filters/sorting change
     loadingShown: false,
@@ -339,6 +340,7 @@
     for (const key of LIST_KEYS) {
       if (ui.filters[key].length && !ui.filters[key].includes(t[key])) return false;
     }
+    if (ui.due && dueInfo(t).level !== ui.due) return false;
     const q = ui.search.trim().toLocaleLowerCase('tr');
     if (q) {
       const hay = [t.alan, t.gorev, t.sahip, t.durum, t.oncelik].join(' ').toLocaleLowerCase('tr');
@@ -837,22 +839,42 @@
       else if (level === 'yellow') yellow += 1;
     }
     const shown = ui.shownCount;
-    const stat = (value, label, extra = {}) => el('span', { class: `stat ${extra.class || ''}`.trim(), title: extra.title || '' },
+    const stat = (value, label, extra = {}) => el(extra.due ? 'button' : 'span', {
+      class: `stat ${extra.class || ''}`.trim(),
+      title: extra.title || '',
+      ...(extra.due ? {
+        type: 'button',
+        dataset: { due: extra.due },
+        'aria-pressed': String(ui.due === extra.due),
+        disabled: value === 0 && ui.due !== extra.due,
+        onclick: () => toggleDueFilter(extra.due),
+      } : {}),
+    },
       extra.dot ? el('span', { class: 'status-dot', 'aria-hidden': 'true' }) : null,
       el('span', { class: 'stat-value', textContent: String(value) }),
       el('span', { class: 'stat-label', textContent: label }),
       extra.hint ? el('span', { class: 'stat-hint', textContent: extra.hint }) : null);
+    const dueTitle = (text, level) => `${text}${ui.due === level ? ' — filtreyi kaldırmak için tıklayın' : ' — yalnızca bunları göstermek için tıklayın'}`;
     $('#summary').replaceChildren(
       stat(shown, 'gösterilen'),
       stat(open.length, 'açık'),
       stat(done, 'tamamlanan'),
-      stat(red, 'kritik', { class: `count-red${red ? '' : ' is-zero'}`, dot: true, hint: '3 günden az / gecikmiş', title: 'Tamamlanma tarihine 3 günden az kalan veya geciken açık görevler (kırmızı)' }),
-      stat(yellow, 'yaklaşan', { class: `count-yellow${yellow ? '' : ' is-zero'}`, dot: true, hint: '1 haftadan az', title: 'Tamamlanma tarihine 1 haftadan az kalan açık görevler (sarı)' }),
+      stat(red, 'kritik', { due: 'red', class: `count-red${red ? '' : ' is-zero'}`, dot: true, hint: '3 günden az / gecikmiş', title: dueTitle('Tamamlanma tarihine 3 günden az kalan veya geciken açık görevler (kırmızı)', 'red') }),
+      stat(yellow, 'yaklaşan', { due: 'yellow', class: `count-yellow${yellow ? '' : ' is-zero'}`, dot: true, hint: '1 haftadan az', title: dueTitle('Tamamlanma tarihine 1 haftadan az kalan açık görevler (sarı)', 'yellow') }),
     );
   }
 
+  function toggleDueFilter(level) {
+    ui.due = ui.due === level ? null : level;
+    resetPinned();
+    renderView();
+    renderSummary();
+    updateFilterUi();
+    $(`#summary [data-due="${level}"]`)?.focus();
+  }
+
   function hasActiveFilters() {
-    return !!(ui.search.trim() || ui.showCompleted || LIST_KEYS.some((k) => ui.filters[k].length));
+    return !!(ui.search.trim() || ui.showCompleted || ui.due || LIST_KEYS.some((k) => ui.filters[k].length));
   }
 
   function updateFilterUi() {
@@ -1634,6 +1656,7 @@
     $('#btn-clear-filters').addEventListener('click', () => {
       ui.search = '';
       ui.filters = emptyFilters();
+      ui.due = null;
       ui.showCompleted = false;
       resetPinned();
       render();
