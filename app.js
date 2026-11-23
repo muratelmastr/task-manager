@@ -568,10 +568,22 @@
     $('#timesheet-view').hidden = view !== 'timesheet';
     document.body.classList.toggle('view-timesheet', view === 'timesheet');
     document.body.classList.toggle('view-board', view === 'board');
+    placeSummaryBar(view === 'board');
     renderNav();
     if (view === 'board') renderBoard();
     else if (view === 'timesheet') { if (timesheet) timesheet.render(); }
     else renderTable();
+  }
+
+  // Board: the kritik/yaklaşan chips sit inline next to the filters to save vertical space.
+  function placeSummaryBar(inToolbar) {
+    const bar = $('.summary-bar');
+    const clear = $('#btn-clear-filters');
+    if (inToolbar) {
+      if (bar.nextElementSibling !== clear) clear.before(bar);
+    } else if ($('.toolbar').nextElementSibling !== bar) {
+      $('.toolbar').after(bar);
+    }
   }
 
   function renderFilterOptions() {
