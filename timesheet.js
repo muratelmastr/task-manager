@@ -168,11 +168,6 @@
     // ---------- Toolbar ----------
 
     function setupToolbar() {
-      document.querySelectorAll('#timesheet-view .ts-tab').forEach((b) => b.addEventListener('click', () => {
-        S.tab = b.dataset.tab;
-        syncToolbar();
-        renderBody();
-      }));
       $('#ts-period').addEventListener('change', (e) => {
         S.preset = e.target.value;
         if (S.preset === 'custom') {
@@ -212,11 +207,6 @@
     }
 
     function syncToolbar() {
-      document.querySelectorAll('#timesheet-view .ts-tab').forEach((b) => {
-        const on = b.dataset.tab === S.tab;
-        b.classList.toggle('active', on);
-        b.setAttribute('aria-selected', String(on));
-      });
       $('#ts-period').value = S.preset;
       $('#ts-custom').hidden = S.preset !== 'custom';
       const mineMode = S.tab === 'entries' && S.mine;
@@ -716,7 +706,12 @@
     setupToolbar();
     setupDialog();
 
-    return { render, load, openEntry, taskEntries, isSelectable, formatHours, sum, isOpen: () => $('#ts-dialog').open };
+    // The page (sidebar) decides which tab is shown: 'entries' | 'report'.
+    function setTab(tab) {
+      S.tab = tab === 'report' ? 'report' : 'entries';
+    }
+
+    return { render, load, openEntry, setTab, tab: () => S.tab, taskEntries, isSelectable, formatHours, sum, isOpen: () => $('#ts-dialog').open };
   }
 
   window.TaskTimesheet = { create, parseHours, presetRange, dayNumber };

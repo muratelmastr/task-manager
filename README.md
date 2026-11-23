@@ -6,7 +6,7 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 
 ## Özellikler
 
-- **Liste / Board / Timesheet görünümü:** Sayfanın üstündeki **☰ Liste | ▦ Board | 🕒 Timesheet** düğmesiyle geçiş yapılır; seçim hatırlanır (Timesheet yalnızca kullanıcı girişli modda görünür).
+- **Sol menü (sidebar):** Tüm gezinme soldaki menüde toplanır: **Görevler** (Liste, Board), **Timesheet** (Girişler, Rapor – yalnızca kullanıcı girişli modda), altta **Veri** (Excel'e Aktar / Yedek Al / Yedekten Yükle), **Ayarlar**, eşitleme durumu ve profil (Şifre değiştir, Çıkış yap). Seçilen sayfa hatırlanır. Masaüstünde menü ⊟ düğmesiyle yalnızca ikonlara daraltılabilir (seçim hatırlanır; 1400 px'ten dar ekranlarda varsayılan olarak daraltılmış açılır). Mobilde sol üstteki **☰** ile açılır. Sayfanın üstünde sayfa başlığı ve **Yeni Görev** / **Zaman gir** düğmesi yer alır.
   - **Liste:** Excel benzeri satır içi düzenleme; Alan, Görev, Sahip, Durum, Öncelik ve Tamamlanma Tarihi doğrudan tabloda düzenlenir. **No** sütunundaki görev numarasına veya satır sonundaki ↗ düğmesine tıklayınca görev detayı açılır.
   - **Board:** Görevler Durum sütunlarında kart olarak görünür. Kartı başka sütuna **sürükleyerek** durumunu değiştirebilir, karta **tıklayarak** detayını açabilirsiniz. Filtreler, arama ve renklendirme board'da da geçerlidir; gizli tamamlanan görev sayısı "Tamamlandı" sütununda gösterilir.
 - **Parametrik listeler:** Alan, Sahip ve Durum değerleri listeden seçilir; **⚙ Ayarlar** ekranından eklenip yeniden adlandırılabilir, sıralanabilir ve silinebilir (girişli modda Sahip listesi kullanıcı hesaplarından gelir).
@@ -50,14 +50,14 @@ Veriler ekibin **Firebase Realtime Database** veritabanında saklanır; giriş *
 
 - **Giriş:** Sayfa açıldığında giriş ekranı gelir; her ekip üyesi kendi **e-posta adresi ve şifresi** ile giriş yapar. Oturum, **Çıkış yap** denilene kadar açık kalır.
   - **Şifremi unuttum:** E-posta adresine şifre sıfırlama bağlantısı gönderilir.
-  - **Şifre değiştir:** Sağ üstteki kullanıcı menüsünden kendi adresinize şifre değiştirme bağlantısı gönderilir.
+  - **Şifre değiştir:** Sol menünün altındaki profil menüsünden kendi adresinize şifre değiştirme bağlantısı gönderilir.
   - **Çıkış yap:** Oturum ve tarayıcıdaki görev kopyası silinir.
 - **Erişim:** Yalnızca veritabanındaki `/users` listesinde e-postası bulunan kullanıcılar veriyi görebilir ve değiştirebilir. Hesabı olup listede olmayan biri giriş yaparsa "erişimi yok" uyarısı alır.
 - **Sahip listesi = kullanıcılar:** Sahip değerleri `/users` listesinden (sıra alanına göre) otomatik oluşur; Ayarlar'da salt okunurdur. Kullanıcı eklemeden önceki isimler ("Murat E.", "Murat Elmas" gibi) tek bir kullanıcıya açıkça uyuyorsa otomatik olarak kullanıcı adına çevrilir.
 - **Oluşturan:** Yeni görevlerde görevi oluşturan kullanıcı kaydedilir ve görev penceresinde "Oluşturan" olarak gösterilir (sonradan değiştirilemez). Liste ve kartlarda gösterilmez.
 - **Benim görevlerim:** Araç çubuğundaki düğme, Sahip filtresini giriş yapan kullanıcıya ayarlar; tekrar tıklayınca kaldırır.
 - Her değişiklik **otomatik olarak** kaydedilir; tüm ekip aynı listeyi görür. Başkalarının değişiklikleri 30 saniyede bir ve sayfaya dönüldüğünde çekilir.
-- Bağlantı koparsa değişiklikler tarayıcıda bekletilir ("Çevrimdışı") ve bağlantı gelince gönderilir. Üst çubukta eşitleme durumu görünür.
+- Bağlantı koparsa değişiklikler tarayıcıda bekletilir ("Çevrimdışı") ve bağlantı gelince gönderilir. Sol menünün altında eşitleme durumu görünür.
 - Veritabanı kuralları (`database.rules.json`) ayrıca şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin veya görev numarasının değiştirilmesi, aynı numaranın iki göreve verilmesi, başkasının yüklediği ekin silinmesi, başkası adına zaman girişi yapılması, başkasının veya 30 günden eski girişlerin değiştirilmesi, 0,25 adımına uymayan ya da 24 saati aşan süreler ve hatalı biçimli kayıtlar.
 
 > Zaman girişlerinde `gorevNo`, `gorevAdi` ve `alan` görevin o anki kopyasıdır; görev sonradan değişse de rapor okunabilir kalır. Günlük 24 saat toplam sınırı uygulama tarafından denetlenir.
