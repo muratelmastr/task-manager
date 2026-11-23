@@ -489,12 +489,15 @@
     return { alan: [], sahip: [], durum: [] };
   }
 
-  const doneFiltered = () => ui.filters.durum.includes(DONE);
+  // Board columns are the statuses, so the Durum filter is hidden and ignored there.
+  const activeFilterKeys = () => (ui.view === 'board' ? LIST_KEYS.filter((k) => k !== 'durum') : LIST_KEYS);
+  const statusFilter = () => (ui.view === 'board' ? [] : ui.filters.durum);
+  const doneFiltered = () => statusFilter().includes(DONE);
 
   function matchesFilters(t, { includeDone = false } = {}) {
     const showDone = includeDone || ui.showCompleted || doneFiltered();
     if (t.durum === DONE && !showDone) return false;
-    for (const key of LIST_KEYS) {
+    for (const key of activeFilterKeys()) {
       if (ui.filters[key].length && !ui.filters[key].includes(t[key])) return false;
     }
     if (ui.due && dueInfo(t).level !== ui.due) return false;
@@ -564,6 +567,7 @@
     $('#board-view').hidden = view !== 'board';
     $('#timesheet-view').hidden = view !== 'timesheet';
     document.body.classList.toggle('view-timesheet', view === 'timesheet');
+    document.body.classList.toggle('view-board', view === 'board');
     renderNav();
     if (view === 'board') renderBoard();
     else if (view === 'timesheet') { if (timesheet) timesheet.render(); }
@@ -918,8 +922,7 @@
     }
     const tasks = visibleTasks();
     ui.shownCount = tasks.length;
-    const statuses = ui.filters.durum.length ? ui.filters.durum : data.lists.durum;
-    board.replaceChildren(...statuses.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
+    board.replaceChildren(...data.lists.durum.map((s) => buildColumn(s, tasks.filter((t) => t.durum === s))));
   }
   function isHiddenWhenDone() {
     return !ui.showCompleted && !doneFiltered();
@@ -1580,7 +1583,7 @@
   }
 
   function hasActiveFilters() {
-    return !!(ui.search.trim() || ui.showCompleted || ui.due || LIST_KEYS.some((k) => ui.filters[k].length));
+    return !!(ui.search.trim() || ui.showCompleted || ui.due || activeFilterKeys().some((k) => ui.filters[k].length));
   }
 
   const isMyTasks = () => !!currentUser && ui.filters.sahip.length === 1 && ui.filters.sahip[0] === currentUser.kullaniciAdi;
@@ -1670,7 +1673,7 @@
       alan: ui.filters.alan[0] || '',
       gorev: '',
       sahip: ui.filters.sahip[0] || '',
-      durum: ui.filters.durum.find((s) => s !== DONE) || firstOpenStatus(),
+      durum: statusFilter().find((s) => s !== DONE) || firstOpenStatus(),
       oncelik: DEFAULT_PRIORITY,
       tamamlanmaTarihi: '',
       createdAt: ts,
@@ -2757,6 +2760,7 @@
         resetPinned();
         renderView();
         renderSummary();
+        updateFilterUi();
       });
     });
 
