@@ -860,6 +860,17 @@
     let count = tasks.length;
 
     cards.append(...tasks.map(buildCard));
+    if (status === DONE && showDone && ui.showCompleted && tasks.length > 0) {
+      cards.prepend(el('p', { class: 'board-note' },
+        icon('eye', 'icon-sm'),
+        el('span', {}, 'Tamamlanan görevler gösteriliyor. ',
+          el('button', {
+            type: 'button',
+            class: 'btn btn-link',
+            textContent: 'Gizle',
+            onclick: () => { ui.showCompleted = false; resetPinned(); render(); },
+          }))));
+    }
     if (doneHidden) {
       const hiddenTasks = data.tasks.filter((t) => t.durum === DONE && !ui.pinned.has(t.id) && matchesFilters(t, { includeDone: true }));
       count += hiddenTasks.length;
