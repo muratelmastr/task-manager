@@ -8,19 +8,52 @@
       ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
       "$key": {
         ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && (newData.exists() || data.child('durum').val() !== 'Tamamlandı')",
-        ".validate": "$key.length <= 120 && newData.hasChildren(['id', 'gorev', 'durum']) && (!data.child('createdBy').exists() || newData.child('createdBy').val() === data.child('createdBy').val())",
-        "id": { ".validate": "newData.isString() && newData.val().length <= 120" },
-        "gorev": { ".validate": "newData.isString() && newData.val().length <= 1000" },
-        "alan": { ".validate": "newData.isString() && newData.val().length <= 200" },
-        "sahip": { ".validate": "newData.isString() && newData.val().length <= 200" },
-        "durum": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
-        "oncelik": { ".validate": "newData.isString() && (newData.val() === '' || newData.val() === 'Yüksek' || newData.val() === 'Orta' || newData.val() === 'Düşük')" },
-        "tamamlanmaTarihi": { ".validate": "newData.isString() && (newData.val() === '' || newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/))" },
-        "completedAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
-        "createdAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
-        "updatedAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
-        "createdBy": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120" },
-        "$other": { ".validate": false }
+        ".validate": "$key.length <= 120 && newData.hasChildren(['id', 'gorev', 'durum']) && (!data.child('createdBy').exists() || newData.child('createdBy').val() === data.child('createdBy').val()) && (!data.child('no').exists() || newData.child('no').val() === data.child('no').val())",
+        "id": {
+          ".validate": "newData.isString() && newData.val().length <= 120"
+        },
+        "gorev": {
+          ".validate": "newData.isString() && newData.val().length <= 1000"
+        },
+        "alan": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "sahip": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "durum": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200"
+        },
+        "oncelik": {
+          ".validate": "newData.isString() && (newData.val() === '' || newData.val() === 'Yüksek' || newData.val() === 'Orta' || newData.val() === 'Düşük')"
+        },
+        "tamamlanmaTarihi": {
+          ".validate": "newData.isString() && (newData.val() === '' || newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/))"
+        },
+        "completedAt": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "createdAt": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "updatedAt": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "createdBy": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120"
+        },
+        "no": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 9999999"
+        },
+        "aciklamaVar": {
+          ".validate": "newData.isBoolean() && newData.val() === true"
+        },
+        "ekSayisi": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 1000"
+        },
+        "$other": {
+          ".validate": false
+        }
       }
     },
     "lists": {
@@ -28,6 +61,84 @@
       "$key": {
         ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && newData.exists()",
         ".validate": "($key === 'alan' || $key === 'sahip' || $key === 'durum') && newData.isString() && newData.val().length <= 20000"
+      }
+    },
+    "taskNumbers": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$no": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && !data.exists() && newData.exists()",
+        ".validate": "$no.matches(/^[1-9][0-9]{0,6}$/) && newData.isString() && newData.val().length <= 120"
+      }
+    },
+    "details": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+        ".validate": "$key.length <= 120 && newData.hasChildren(['aciklama'])",
+        "aciklama": {
+          ".validate": "newData.isString() && newData.val().length <= 100000"
+        },
+        "updatedAt": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "updatedBy": {
+          ".validate": "newData.isString() && newData.val().length <= 120"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "attachments": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && !newData.exists() && !newData.parent().parent().child('tasks/' + $key).exists()",
+        "$fileId": {
+          ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && ((!data.exists() && newData.child('yukleyen').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val()) || (data.exists() && !newData.exists() && data.child('yukleyen').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val()))",
+          ".validate": "$fileId.length <= 64 && newData.hasChildren(['ad', 'boyut', 'yukleyen', 'yuklenmeTarihi', 'parca'])",
+          "ad": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 255"
+          },
+          "boyut": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10485760"
+          },
+          "tur": {
+            ".validate": "newData.isString() && newData.val().length <= 200"
+          },
+          "yukleyen": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 120"
+          },
+          "yuklenmeTarihi": {
+            ".validate": "newData.isString() && newData.val().length <= 40"
+          },
+          "parca": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 40"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "files": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && !newData.exists() && !newData.parent().parent().child('tasks/' + $key).exists()",
+        "$fileId": {
+          ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && ((!data.exists() && newData.child('yukleyen').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val()) || (data.exists() && data.child('yukleyen').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val()))",
+          ".validate": "$fileId.length <= 64 && newData.hasChildren(['yukleyen'])",
+          "yukleyen": {
+            ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+          },
+          "p": {
+            "$i": {
+              ".validate": "$i.matches(/^[0-9]{1,2}$/) && newData.isString() && newData.val().length <= 600000"
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
       }
     }
   }

@@ -10,6 +10,12 @@
   const cloudEnabled = !!(config.databaseUrl && window.TaskCloud);
   // With an apiKey every team member signs in with their own e-mail and password.
   const auth = cloudEnabled && config.apiKey && window.TaskAuth ? window.TaskAuth.createAuth(config) : null;
+  // Task numbers and descriptions work in local mode and in the signed-in shared database;
+  // attachments need the shared database. The legacy no-login mode keeps the old record format.
+  const richTasks = !cloudEnabled || !!auth;
+  const attachmentsEnabled = !!auth;
+  const MAX_FILE_BYTES = 10 * 1024 * 1024;
+  const CHUNK_BYTES = 384 * 1024; // 512 KB once base64-encoded
   const LOGIN_MESSAGE_KEY = 'taskManager.loginMessage';
   const DONE = 'Tamamlandı';
   const RED_DAYS = 3;
@@ -156,6 +162,77 @@
     return avatar;
   }
 
+  // ---------- Rich text (task descriptions) ----------
+
+  const MAX_DESCRIPTION_CHARS = 100000;
+  // Allowed tags (others are unwrapped, keeping their text) and tag aliases.
+  const RICH_TAGS = new Set(['P', 'BR', 'STRONG', 'EM', 'U', 'S', 'H2', 'H3', 'UL', 'OL', 'LI', 'A', 'BLOCKQUOTE', 'CODE', 'PRE']);
+  const RICH_ALIASES = { B: 'STRONG', I: 'EM', STRIKE: 'S', DEL: 'S', H1: 'H2', H4: 'H3', H5: 'H3', H6: 'H3', DIV: 'P' };
+  // Dropped together with their content.
+  const RICH_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'HEAD', 'META', 'LINK', 'TEMPLATE', 'SVG', 'MATH', 'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'FORM', 'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'NOSCRIPT', 'TITLE', 'XML']);
+  const safeHref = (href) => {
+    const h = str(href);
+    return /^(https?:|mailto:)/i.test(h) ? h : '';
+  };
+
+  // Whitelist sanitizer: parses in an inert document, rebuilds only allowed elements without attributes
+  // (links keep a checked href). Used on paste, before saving and before rendering.
+  function sanitizeHtml(html) {
+    if (!html) return '';
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    const out = document.createElement('div');
+    const copy = (src, dest) => {
+      for (const node of src.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE) { dest.append(node.nodeValue); continue; }
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        const tag = RICH_ALIASES[node.tagName] || node.tagName;
+        if (RICH_DROP.has(tag)) continue;
+        if (!RICH_TAGS.has(tag)) { copy(node, dest); continue; }
+        const elx = document.createElement(tag);
+        if (tag === 'A') {
+          const href = safeHref(node.getAttribute('href'));
+          if (!href) { copy(node, dest); continue; }
+          elx.setAttribute('href', href);
+          elx.setAttribute('target', '_blank');
+          elx.setAttribute('rel', 'noopener noreferrer');
+        }
+        copy(node, elx);
+        dest.append(elx);
+      }
+    };
+    copy(doc.body, out);
+    // Loose inline content at the top level goes into paragraphs; empty paragraphs are dropped.
+    const BLOCKS = new Set(['P', 'H2', 'H3', 'UL', 'OL', 'BLOCKQUOTE', 'PRE']);
+    const normalized = document.createElement('div');
+    let para = null;
+    for (const node of [...out.childNodes]) {
+      if (node.nodeType === Node.ELEMENT_NODE && BLOCKS.has(node.nodeName)) {
+        para = null;
+        if (node.nodeName === 'P' && !node.textContent.trim()) continue;
+        normalized.append(node);
+      } else if (node.nodeName === 'BR' && para) {
+        para = null; // a line break between loose runs starts a new paragraph
+      } else if (node.nodeName !== 'BR' && !(node.nodeType === Node.TEXT_NODE && !para && !node.nodeValue.trim())) {
+        if (!para) { para = document.createElement('p'); normalized.append(para); }
+        para.append(node);
+      }
+    }
+    normalized.querySelectorAll('li').forEach((li) => { if (!li.textContent.trim()) li.remove(); });
+    normalized.querySelectorAll('ul, ol').forEach((list) => { if (!list.children.length) list.remove(); });
+    normalized.querySelectorAll('p').forEach((p) => { if (!p.textContent.trim()) p.remove(); });
+    return normalized.textContent.trim() ? normalized.innerHTML : '';
+  }
+
+  // Plain text for Excel export.
+  function htmlToText(html) {
+    if (!html) return '';
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    doc.querySelectorAll('br').forEach((b) => b.replaceWith('\n'));
+    doc.querySelectorAll('li').forEach((li) => li.prepend('• '));
+    doc.querySelectorAll('p, h2, h3, li, blockquote, pre').forEach((b) => b.append('\n'));
+    return doc.body.textContent.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   let toastTimer;
   function toast(message) {
     const t = $('#toast');
@@ -216,6 +293,11 @@
         updatedAt: str(t.updatedAt) || created,
         completedAt: durum === DONE ? (str(t.completedAt) || null) : null,
         createdBy: str(t.createdBy),
+        no: normalizeNo(t.no),
+        // Description: kept in the task only in local mode; the shared database stores it in /details.
+        aciklama: typeof t.aciklama === 'string' ? sanitizeHtml(t.aciklama) : '',
+        aciklamaVar: t.aciklamaVar === true,
+        ekSayisi: normalizeCount(t.ekSayisi),
       };
     });
 
@@ -230,7 +312,28 @@
     }
 
     const meta = raw.meta && typeof raw.meta === 'object' ? raw.meta : {};
-    return { version: 1, lists, tasks, meta: { lastBackupAt: str(meta.lastBackupAt) || null } };
+    return { version: 1, lists, tasks, meta: { lastBackupAt: str(meta.lastBackupAt) || null, nextNo: normalizeNo(meta.nextNo) } };
+  }
+
+  function normalizeNo(v) {
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 1 && n <= 9999999 ? n : null;
+  }
+
+  function normalizeCount(v) {
+    const n = Number(v);
+    return Number.isInteger(n) && n > 0 && n <= 1000 ? n : 0;
+  }
+
+  const taskNoLabel = (t) => (t.no ? `#${t.no}` : '');
+  const hasDescription = (t) => !!(t.aciklama || t.aciklamaVar);
+
+  // Local mode: tasks get the next free number when they are saved (existing ones by creation date).
+  function numberLocalTasks() {
+    const pending = data.tasks.filter((t) => !t.no).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    let next = Math.max(data.meta.nextNo || 1, ...data.tasks.map((t) => (t.no || 0) + 1));
+    for (const t of pending) t.no = next++;
+    data.meta.nextNo = next;
   }
 
   function load() {
@@ -276,6 +379,7 @@
       return;
     }
     try {
+      numberLocalTasks();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (err) {
       alert(`Veriler kaydedilemedi: ${err.message}`);
@@ -391,7 +495,7 @@
     if (ui.due && dueInfo(t).level !== ui.due) return false;
     const q = ui.search.trim().toLocaleLowerCase('tr');
     if (q) {
-      const hay = [t.alan, t.gorev, t.sahip, t.durum, t.oncelik].join(' ').toLocaleLowerCase('tr');
+      const hay = [t.alan, t.gorev, t.sahip, t.durum, t.oncelik, taskNoLabel(t)].join(' ').toLocaleLowerCase('tr');
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -413,6 +517,10 @@
       if (!a.oncelik && b.oncelik) return 1; // no priority always last
       if (a.oncelik && !b.oncelik) return -1;
       res = PRIORITIES.indexOf(a.oncelik) - PRIORITIES.indexOf(b.oncelik);
+    } else if (key === 'no') {
+      if (!a.no && b.no) return 1;
+      if (a.no && !b.no) return -1;
+      res = (a.no || 0) - (b.no || 0);
     } else {
       const av = a[key] || '';
       const bv = b[key] || '';
@@ -571,18 +679,35 @@
       onclick: () => deleteTask(task),
     }, icon('trash'));
 
+    const detailBtn = el('button', {
+      type: 'button',
+      class: 'btn btn-ghost btn-icon btn-detail',
+      'aria-label': 'Detayı aç',
+      title: 'Detayı aç (açıklama, ekler)',
+      onclick: () => openTaskDialog(task),
+    }, icon('open'));
+
     tr.append(
+      el('td', { class: 'cell-no' }, el('button', { type: 'button', class: 'task-no', title: 'Detayı aç', onclick: () => openTaskDialog(task) })),
       el('td', { class: 'cell-alan-td' }, buildSelect('alan', task, update('alan'))),
-      el('td', { class: 'cell-gorev-td' }, gorevInput),
+      el('td', { class: 'cell-gorev-td' }, el('div', { class: 'gorev-cell' }, gorevInput, el('span', { class: 'row-indicators' }))),
       el('td', {}, el('div', { class: 'owner-cell' }, buildAvatar(task.sahip, 'avatar-sm'), buildSelect('sahip', task, update('sahip')))),
       el('td', {}, buildSelect('durum', task, update('durum'))),
       el('td', {}, buildPriorityCell(task, update('oncelik'))),
       el('td', {}, el('div', { class: 'date-cell' }, dateInput, el('span', { class: 'date-empty', 'aria-hidden': 'true', textContent: '—' }))),
       el('td', { class: 'kalan' }),
-      el('td', { class: 'actions' }, deleteBtn),
+      el('td', { class: 'actions' }, detailBtn, deleteBtn),
     );
     applyRowState(tr, task);
     return tr;
+  }
+
+  // Small icons showing that a task has a description and/or attachments.
+  function buildIndicators(task) {
+    const items = [];
+    if (hasDescription(task)) items.push(el('span', { class: 'indicator', title: 'Açıklaması var' }, icon('text', 'icon-sm')));
+    if (task.ekSayisi) items.push(el('span', { class: 'indicator', title: `${task.ekSayisi} ek` }, icon('paperclip', 'icon-sm'), String(task.ekSayisi)));
+    return items;
   }
 
   function buildPriorityCell(task, onChange) {
@@ -612,6 +737,11 @@
     updateAvatar(tr.querySelector('.owner-cell .avatar'), task.sahip);
     updatePriorityCell(tr.querySelector('.prio-cell'), task.oncelik);
     tr.querySelector('.date-cell').classList.toggle('is-empty', !task.tamamlanmaTarihi);
+    const noBtn = tr.querySelector('.task-no');
+    noBtn.textContent = taskNoLabel(task) || '#…';
+    noBtn.classList.toggle('is-pending', !task.no);
+    noBtn.setAttribute('aria-label', task.no ? `Görev ${task.no} detayını aç` : 'Detayı aç');
+    tr.querySelector('.row-indicators').replaceChildren(...buildIndicators(task));
 
     const kalan = tr.querySelector('td.kalan');
     const badgeCls = done ? 'badge-success' : level === 'red' ? 'badge-danger' : level === 'yellow' ? 'badge-warning' : '';
@@ -630,7 +760,7 @@
     if (!box.childElementCount) {
       for (let i = 0; i < 5; i++) {
         box.append(el('div', { class: 'skeleton-row' },
-          ...['14%', '34%', '12%', '12%', '8%', '10%', '8%'].map((w) => el('span', { class: 'skeleton', style: `width:${w}` }))));
+          ...['5%', '14%', '30%', '12%', '12%', '8%', '10%', '8%'].map((w) => el('span', { class: 'skeleton', style: `width:${w}` }))));
       }
     }
   }
@@ -671,8 +801,10 @@
     if (ui.pinned.has(task.id)) classes.push('is-new');
 
     const badgeCls = level === 'red' ? 'badge-danger' : level === 'yellow' ? 'badge-warning' : '';
+    const indicators = buildIndicators(task);
     const meta = el('div', { class: 'card-meta' },
       el('span', { class: `card-sahip${task.sahip ? '' : ' is-empty'}` }, buildAvatar(task.sahip, 'avatar-sm'), task.sahip || 'Atanmamış'),
+      indicators.length ? el('span', { class: 'card-indicators' }, ...indicators) : null,
       task.tamamlanmaTarihi
         ? el('span', { class: 'card-due' },
           el('span', { class: 'card-date' }, icon('calendar', 'icon-sm'), formatDate(task.tamamlanmaTarihi)),
@@ -685,7 +817,7 @@
       draggable: true,
       tabIndex: 0,
       title: 'Düzenlemek için tıklayın, durumunu değiştirmek için sürükleyin',
-      'aria-label': `${task.gorev || 'İsimsiz görev'}${task.oncelik ? `, ${task.oncelik} öncelik` : ''}${task.sahip ? `, ${task.sahip}` : ''}${label && !done ? `, ${label}` : ''}`,
+      'aria-label': `${task.no ? `Görev ${task.no}: ` : ''}${task.gorev || 'İsimsiz görev'}${task.oncelik ? `, ${task.oncelik} öncelik` : ''}${task.sahip ? `, ${task.sahip}` : ''}${label && !done ? `, ${label}` : ''}`,
       dataset: { id: task.id },
       onclick: () => openTaskDialog(task),
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskDialog(task); } },
@@ -698,6 +830,7 @@
       ondragend: () => { card.classList.remove('dragging'); document.body.classList.remove('is-dragging'); },
     },
     el('div', { class: 'card-top' },
+      richTasks ? el('span', { class: `card-no${task.no ? '' : ' is-pending'}`, textContent: taskNoLabel(task) || '#…' }) : null,
       task.alan ? el('span', { class: `tag card-alan tone-${toneFor('alan', task.alan)}`, textContent: task.alan }) : null,
       buildPriorityChip(task.oncelik)),
     el('div', { class: `card-title${task.gorev ? '' : ' is-empty'}`, textContent: task.gorev || '(İsimsiz görev)' }),
@@ -801,15 +934,26 @@
     renderBackupInfo();
   }
 
-  // ---------- Task dialog (board view) ----------
+  // ---------- Task dialog (details) ----------
 
   let editingTask = null;
+  let savingTask = false;
+  // Description editor state: the HTML it was loaded with and the server version it is based on.
+  const desc = { original: '', updatedAt: null, loaded: false, token: 0 };
+
+  const taskKey = (id) => window.TaskCloud.encodeKey(id);
+  const displayName = (username) => { const u = userByName(username); return u ? fullName(u) : username; };
 
   function openTaskDialog(task) {
     editingTask = task || null;
     const draft = task || newTaskDraft();
     const form = $('#task-form');
+    $('#task-dialog').classList.toggle('is-simple', !richTasks);
     $('#task-dialog-title').textContent = task ? 'Görevi Düzenle' : 'Yeni Görev';
+    const badge = $('#task-no-badge');
+    badge.hidden = !task || !richTasks;
+    badge.textContent = task ? (taskNoLabel(task) || '#…') : '';
+    badge.title = task && !task.no ? 'Numara kaydedildikten sonra atanır' : '';
     form.elements.gorev.value = draft.gorev;
     for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key], EMPTY_LABELS[key]);
     fillPriorityOptions(form.elements.oncelik, draft.oncelik);
@@ -826,6 +970,9 @@
     del.title = del.disabled ? 'Tamamlanan görevler silinemez' : 'Görevi sil';
     showGorevError(false);
     updateTaskFormState();
+    setTaskSaving(false);
+    loadDescription(task);
+    loadAttachments(task);
     $('#task-dialog').showModal();
     form.elements.gorev.focus();
   }
@@ -838,12 +985,31 @@
   function updateTaskFormState() {
     const form = $('#task-form');
     const empty = !form.elements.gorev.value.trim();
-    form.querySelector('button[type=submit]').disabled = empty;
+    form.querySelector('button[type=submit]').disabled = empty || savingTask;
     if (!empty) showGorevError(false);
   }
 
-  function saveTaskDialog(e) {
+  function setTaskSaving(busy) {
+    savingTask = busy;
+    const submit = $('#task-form button[type=submit]');
+    submit.querySelector('.spinner').hidden = !busy;
+    submit.querySelector('.submit-label').textContent = busy ? 'Kaydediliyor…' : 'Kaydet';
+    document.querySelectorAll('#task-dialog [data-close], #task-delete').forEach((b) => { b.disabled = busy || (b.id === 'task-delete' && !!editingTask && editingTask.durum === DONE); });
+    updateTaskFormState();
+  }
+
+  const descriptionDirty = () => richTasks && desc.loaded && sanitizeHtml($('#desc-editor').innerHTML) !== desc.original;
+
+  // Asks before throwing away an edited description.
+  function closeTaskDialog() {
+    if (savingTask) return;
+    if (descriptionDirty() && !confirm('Açıklamada kaydedilmemiş değişiklikler var. Kaydetmeden kapatılsın mı?')) return;
+    $('#task-dialog').close();
+  }
+
+  async function saveTaskDialog(e) {
     e.preventDefault();
+    if (savingTask) return;
     const form = $('#task-form');
     const gorev = form.elements.gorev.value.trim();
     if (!gorev) {
@@ -862,21 +1028,471 @@
       tamamlanmaTarihi: isIsoDate(tarih) ? tarih : '',
     };
     let task = editingTask;
+    const draft = task || { ...newTaskDraft(), ...values };
+
+    // Description: saved first (shared database) so a failed save keeps the dialog open.
+    if (richTasks && desc.loaded) {
+      const html = sanitizeHtml($('#desc-editor').innerHTML);
+      if (html.length > MAX_DESCRIPTION_CHARS) {
+        alert(`Açıklama çok uzun (${Math.round(html.length / 1000)} bin karakter). En fazla ${MAX_DESCRIPTION_CHARS / 1000} bin karakter olabilir.`);
+        return;
+      }
+      if (html !== desc.original) {
+        if (cloud) {
+          setTaskSaving(true);
+          let ok;
+          try {
+            ok = await saveDescription(draft.id, html);
+          } catch (err) {
+            setTaskSaving(false);
+            alert(`Açıklama kaydedilemedi: ${err.message}\n\nDeğişiklikleriniz pencerede duruyor; bağlantınızı kontrol edip tekrar deneyin.`);
+            return;
+          }
+          setTaskSaving(false);
+          if (!ok) return;
+          values.aciklamaVar = !!html;
+        } else {
+          values.aciklama = html;
+        }
+      }
+    }
+
     if (task) {
       for (const [field, value] of Object.entries(values)) applyChange(task, field, value);
     } else {
-      task = { ...newTaskDraft(), ...values };
+      task = Object.assign(draft, values);
       if (task.durum === DONE) task.completedAt = nowIso();
       data.tasks.push(task);
       if (task.durum !== DONE || !isHiddenWhenDone()) ui.pinned.add(task.id);
     }
     save();
+    desc.loaded = false;
     $('#task-dialog').close();
     if (task.durum === DONE && isHiddenWhenDone()) {
       ui.pinned.delete(task.id);
       toast('Görev tamamlandı ve gizlendi. Görmek için "Tamamlananları göster" seçeneğini işaretleyin.');
     }
     render();
+  }
+
+  // ---------- Description (rich text) ----------
+
+  function setDescStatus(text, kind = 'muted') {
+    const s = $('#desc-status');
+    s.hidden = !text;
+    s.textContent = text || '';
+    s.className = `rte-status is-${kind}`;
+  }
+
+  function setEditorEnabled(on) {
+    const editor = $('#desc-editor');
+    editor.contentEditable = on ? 'true' : 'false';
+    editor.setAttribute('aria-disabled', String(!on));
+    $('#desc-editor-wrap').classList.toggle('is-disabled', !on);
+    document.querySelectorAll('#desc-editor-wrap .rte-btn').forEach((b) => { b.disabled = !on; });
+  }
+
+  function lastEditedText(d) {
+    return d && d.updatedBy ? `Son düzenleyen: ${displayName(d.updatedBy)} · ${formatDateTime(d.updatedAt)}` : '';
+  }
+
+  async function loadDescription(task) {
+    const token = ++desc.token;
+    const editor = $('#desc-editor');
+    Object.assign(desc, { original: '', updatedAt: null, loaded: false });
+    editor.innerHTML = '';
+    setDescStatus('');
+    if (!richTasks) return;
+    if (!cloud || !task || !task.aciklamaVar) {
+      // Local mode keeps the description in the task; tasks without one start empty.
+      const html = !cloud && task ? sanitizeHtml(task.aciklama) : '';
+      editor.innerHTML = html;
+      Object.assign(desc, { original: html, loaded: true });
+      setEditorEnabled(true);
+      return;
+    }
+    setEditorEnabled(false);
+    setDescStatus('Açıklama yükleniyor…');
+    try {
+      const d = await cloud.store.get(`details/${taskKey(task.id)}`);
+      if (token !== desc.token) return;
+      const html = sanitizeHtml(d && d.aciklama);
+      editor.innerHTML = html;
+      Object.assign(desc, { original: html, updatedAt: (d && d.updatedAt) || null, loaded: true });
+      setEditorEnabled(true);
+      setDescStatus(lastEditedText(d));
+    } catch (err) {
+      if (token !== desc.token) return;
+      // Stays read-only so an unloaded description can't be overwritten.
+      setDescStatus(`Açıklama yüklenemedi: ${err.message}`, 'error');
+    }
+  }
+
+  // Returns false when the user chose to load a newer version written by someone else.
+  async function saveDescription(id, html) {
+    const path = `details/${taskKey(id)}`;
+    const current = await cloud.store.get(path);
+    const currentAt = (current && current.updatedAt) || null;
+    if (currentAt !== desc.updatedAt && sanitizeHtml(current && current.aciklama) !== desc.original) {
+      const who = current && current.updatedBy ? displayName(current.updatedBy) : 'başka bir kullanıcı';
+      if (!confirm(`Bu görevin açıklaması siz düzenlerken ${who} tarafından değiştirildi.\n\nTamam: sizin açıklamanız kaydedilsin (diğer değişiklik kaybolur).\nİptal: güncel açıklama yüklensin.`)) {
+        const fresh = sanitizeHtml(current && current.aciklama);
+        $('#desc-editor').innerHTML = fresh;
+        Object.assign(desc, { original: fresh, updatedAt: currentAt });
+        setDescStatus('Güncel açıklama yüklendi. Kontrol edip tekrar kaydedebilirsiniz.', 'info');
+        return false;
+      }
+    }
+    if (html) {
+      const at = nowIso();
+      await cloud.store.put(path, { aciklama: html, updatedAt: at, updatedBy: currentUser ? currentUser.kullaniciAdi : auth.email });
+      desc.updatedAt = at;
+    } else {
+      await cloud.store.remove(path);
+      desc.updatedAt = null;
+    }
+    desc.original = html;
+    return true;
+  }
+
+  function setupEditor() {
+    const editor = $('#desc-editor');
+    const toolbar = $('#desc-editor-wrap .rte-toolbar');
+    const exec = (cmd, value = null) => { editor.focus(); document.execCommand(cmd, false, value); updateToolbarState(); };
+    const currentBlock = () => String(document.queryCommandValue('formatBlock') || '').toUpperCase();
+
+    function insertLink() {
+      const sel = window.getSelection();
+      const text = sel && editor.contains(sel.anchorNode) ? sel.toString() : '';
+      const url = prompt('Bağlantı adresi (https://…, mailto:…)', 'https://');
+      if (url === null) return;
+      const href = safeHref(url);
+      if (!href || href === 'https://') { alert('Geçerli bir bağlantı girin (https://, http:// veya mailto: ile başlamalı).'); return; }
+      if (text) exec('createLink', href);
+      else {
+        const a = document.createElement('a');
+        a.href = href;
+        a.textContent = href;
+        exec('insertHTML', a.outerHTML);
+      }
+    }
+
+    function updateToolbarState() {
+      if (!editor.contains(document.activeElement) && document.activeElement !== editor) return;
+      const block = currentBlock();
+      toolbar.querySelectorAll('.rte-btn').forEach((b) => {
+        let on = false;
+        if (b.dataset.cmd) { try { on = document.queryCommandState(b.dataset.cmd); } catch (e) { on = false; } }
+        if (b.dataset.block) on = block === b.dataset.block;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+    }
+
+    toolbar.addEventListener('mousedown', (e) => { if (e.target.closest('.rte-btn')) e.preventDefault(); }); // keep the selection
+    toolbar.addEventListener('click', (e) => {
+      const b = e.target.closest('.rte-btn');
+      if (!b || b.disabled) return;
+      if (b.dataset.cmd) exec(b.dataset.cmd);
+      else if (b.dataset.block) exec('formatBlock', currentBlock() === b.dataset.block ? '<p>' : `<${b.dataset.block.toLowerCase()}>`);
+      else if (b.dataset.action === 'link') insertLink();
+      else if (b.dataset.action === 'clear') { exec('removeFormat'); exec('unlink'); exec('formatBlock', '<p>'); }
+    });
+    editor.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); insertLink(); }
+    });
+    editor.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const html = e.clipboardData.getData('text/html');
+      if (html) document.execCommand('insertHTML', false, sanitizeHtml(html) || '');
+      else document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+    });
+    editor.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files.length) e.preventDefault(); });
+    editor.addEventListener('input', () => editor.classList.toggle('is-empty', !editor.textContent.trim() && !editor.querySelector('li')));
+    // Links open in a new tab with Ctrl/Cmd+click (a plain click places the caret).
+    editor.addEventListener('click', (e) => {
+      const a = e.target.closest('a');
+      if (a && (e.ctrlKey || e.metaKey)) { e.preventDefault(); window.open(a.href, '_blank', 'noopener'); }
+    });
+    document.addEventListener('selectionchange', updateToolbarState);
+    try { document.execCommand('defaultParagraphSeparator', false, 'p'); } catch (e) { /* not supported */ }
+  }
+
+  // ---------- Attachments (signed-in shared database) ----------
+
+  // In-progress uploads per task id (they keep running when the dialog is closed).
+  const uploads = new Map();
+  const attach = { taskId: null, items: [], token: 0, downloads: new Map() };
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toLocaleString('tr-TR', { maximumFractionDigits: 0 })} KB`;
+    return `${(bytes / 1024 / 1024).toLocaleString('tr-TR', { maximumFractionDigits: 1 })} MB`;
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).slice(String(r.result).indexOf(',') + 1));
+      r.onerror = () => reject(new Error('Dosya okunamadı.'));
+      r.readAsDataURL(blob);
+    });
+  }
+
+  function base64ToBytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  const myUsername = () => (currentUser ? currentUser.kullaniciAdi : '');
+  const attachTask = () => data.tasks.find((t) => t.id === attach.taskId) || null;
+
+  function setAttachNote(text) {
+    const n = $('#attach-note');
+    n.hidden = !text;
+    n.textContent = text || '';
+  }
+
+  function setAttachControls(enabled) {
+    $('#btn-attach').disabled = !enabled;
+    $('#btn-attach-link').disabled = !enabled;
+    $('#attach-drop').hidden = !enabled;
+  }
+
+  async function loadAttachments(task) {
+    const token = ++attach.token;
+    attach.taskId = task ? task.id : null;
+    attach.items = [];
+    $('#attachments').hidden = !richTasks;
+    setAttachNote('');
+    if (!richTasks) return;
+    if (!attachmentsEnabled) {
+      setAttachControls(false);
+      setAttachNote('Ekler yalnızca kullanıcı girişli ortak veritabanı modunda kullanılabilir.');
+      renderAttachments();
+      return;
+    }
+    if (!task) {
+      setAttachControls(false);
+      setAttachNote('Dosya eklemek için önce görevi kaydedin.');
+      renderAttachments();
+      return;
+    }
+    setAttachControls(true);
+    renderAttachments();
+    if (task.ekSayisi) setAttachNote('Ekler yükleniyor…');
+    try {
+      const list = await cloud.store.get(`attachments/${taskKey(task.id)}`);
+      if (token !== attach.token) return;
+      attach.items = Object.entries(list || {})
+        .filter(([, v]) => v && typeof v === 'object')
+        .map(([id, v]) => ({ id, ad: str(v.ad) || 'dosya', boyut: Number(v.boyut) || 0, tur: str(v.tur), yukleyen: str(v.yukleyen), yuklenmeTarihi: str(v.yuklenmeTarihi), parca: Number(v.parca) || 1 }))
+        .sort((a, b) => a.yuklenmeTarihi.localeCompare(b.yuklenmeTarihi));
+      setAttachNote('');
+      renderAttachments();
+      setAttachmentCount(task, attach.items.length, task.ekSayisi !== attach.items.length);
+    } catch (err) {
+      if (token !== attach.token) return;
+      setAttachNote(`Ekler yüklenemedi: ${err.message}`);
+    }
+  }
+
+  // The attachment counter on the task record (for the card/list icon) is recounted from the
+  // server after every change and written directly, so concurrent uploads can't leave it stale.
+  async function refreshAttachmentCount(task) {
+    let keys;
+    try {
+      keys = await cloud.store.get(`attachments/${taskKey(task.id)}`, 'shallow=true');
+    } catch (err) {
+      return;
+    }
+    setAttachmentCount(task, Object.keys(keys || {}).length, true);
+  }
+
+  function setAttachmentCount(task, count, direct = false) {
+    if (!data.tasks.includes(task)) return;
+    const id = task.id;
+    const known = cloud.remote.tasks[id];
+    const inSync = known !== undefined && known === taskSig(task);
+    if (task.ekSayisi !== count) applyChange(task, 'ekSayisi', count);
+    else if (!direct) return;
+    if (direct && inSync) {
+      cloud.store.patch({ [`${taskPath(id)}/ekSayisi`]: count || null, [`${taskPath(id)}/updatedAt`]: task.updatedAt })
+        .then(() => {
+          if (cloud.remote.tasks[id] === known) cloud.remote.tasks[id] = taskSig(task);
+          persistCloudCache();
+        })
+        .catch(() => { /* the regular sync pushes the task */ });
+    }
+    save();
+    renderWhenIdle();
+  }
+
+  function renderAttachments() {
+    const list = $('#attach-list');
+    const pending = (attach.taskId && uploads.get(attach.taskId)) || [];
+    const count = attach.items.length;
+    const badge = $('#attach-count');
+    badge.hidden = !count;
+    badge.textContent = String(count);
+    list.replaceChildren(
+      ...attach.items.map(buildAttachmentItem),
+      ...pending.map(buildUploadItem),
+    );
+  }
+
+  function buildAttachmentItem(item) {
+    const own = item.yukleyen && item.yukleyen === myUsername();
+    const dl = attach.downloads.get(item.id);
+    const isImage = item.tur.startsWith('image/');
+    const meta = dl
+      ? (dl.error ? `İndirilemedi: ${dl.error}` : `İndiriliyor… %${Math.round(dl.progress * 100)}`)
+      : [formatSize(item.boyut), item.yukleyen ? displayName(item.yukleyen) : '', formatDateTime(item.yuklenmeTarihi)].filter(Boolean).join(' · ');
+    return el('li', { class: `attach-item${dl && dl.error ? ' is-error' : ''}`, dataset: { id: item.id } },
+      el('span', { class: 'attach-icon', 'aria-hidden': 'true' }, icon(isImage ? 'image' : 'file')),
+      el('span', { class: 'attach-info' },
+        el('button', { type: 'button', class: 'attach-name', title: `${item.ad} – indirmek için tıklayın`, textContent: item.ad, onclick: () => downloadAttachment(item) }),
+        el('span', { class: 'attach-meta', textContent: meta })),
+      el('span', { class: 'attach-actions' },
+        iconButton('download', 'İndir', { 'aria-label': `${item.ad} indir`, disabled: !!(dl && !dl.error), onclick: () => downloadAttachment(item) }),
+        own ? iconButton('trash', 'Sil', { class: 'btn btn-ghost btn-icon btn-sm btn-danger', 'aria-label': `${item.ad} sil`, onclick: () => deleteAttachment(item) }) : null));
+  }
+
+  function buildUploadItem(up) {
+    const pct = up.file.size ? Math.round((up.loaded / up.file.size) * 100) : 0;
+    return el('li', { class: `attach-item is-uploading${up.error ? ' is-error' : ''}` },
+      el('span', { class: 'attach-icon', 'aria-hidden': 'true' }, icon('upload')),
+      el('span', { class: 'attach-info' },
+        el('span', { class: 'attach-name is-static', textContent: up.file.name }),
+        up.error
+          ? el('span', { class: 'attach-meta', textContent: `Yüklenemedi: ${up.error}` })
+          : el('span', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct), 'aria-label': `${up.file.name} yükleniyor` },
+            el('span', { class: 'progress-bar', style: `width:${pct}%` }))),
+      el('span', { class: 'attach-actions' },
+        up.error ? iconButton('refresh', 'Tekrar dene', { onclick: () => runUpload(up) }) : el('span', { class: 'attach-pct', textContent: `%${pct}` }),
+        up.error ? iconButton('x', 'Kaldır', { onclick: () => { removeUpload(up); renderAttachments(); } }) : null));
+  }
+
+  function removeUpload(up) {
+    const list = uploads.get(up.taskId) || [];
+    uploads.set(up.taskId, list.filter((u) => u !== up));
+  }
+
+  function addFiles(fileList) {
+    const task = attachTask();
+    if (!task || !attachmentsEnabled) return;
+    const files = [...fileList];
+    const tooBig = files.filter((f) => f.size > MAX_FILE_BYTES);
+    const empty = files.filter((f) => f.size === 0);
+    if (tooBig.length) alert(`Şu dosyalar 10 MB sınırını aşıyor ve eklenmedi:\n${tooBig.map((f) => `• ${f.name} (${formatSize(f.size)})`).join('\n')}`);
+    if (empty.length) toast(`Boş dosyalar eklenmedi: ${empty.map((f) => f.name).join(', ')}`);
+    const ok = files.filter((f) => f.size > 0 && f.size <= MAX_FILE_BYTES);
+    if (!ok.length) return;
+    const list = uploads.get(task.id) || [];
+    const added = ok.map((file) => ({ id: uid(), taskId: task.id, file, loaded: 0, error: null }));
+    uploads.set(task.id, [...list, ...added]);
+    renderAttachments();
+    (async () => { for (const up of added) await runUpload(up); })();
+  }
+
+  async function runUpload(up) {
+    up.error = null;
+    up.loaded = 0;
+    if (attach.taskId === up.taskId) renderAttachments();
+    const key = taskKey(up.taskId);
+    const base = `files/${key}/${up.id}`;
+    const parts = Math.max(1, Math.ceil(up.file.size / CHUNK_BYTES));
+    try {
+      for (let i = 0; i < parts; i += 1) {
+        const b64 = await blobToBase64(up.file.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES));
+        if (i === 0) await cloud.store.put(base, { yukleyen: myUsername(), p: { 0: b64 } });
+        else await cloud.store.put(`${base}/p/${i}`, b64);
+        up.loaded = Math.min(up.file.size, (i + 1) * CHUNK_BYTES);
+        if (attach.taskId === up.taskId) renderAttachments();
+      }
+      const item = { ad: up.file.name.slice(0, 255), boyut: up.file.size, tur: (up.file.type || '').slice(0, 200), yukleyen: myUsername(), yuklenmeTarihi: nowIso(), parca: parts };
+      // The metadata is written last, so others only see complete files.
+      await cloud.store.put(`attachments/${key}/${up.id}`, item);
+      removeUpload(up);
+      const task = data.tasks.find((t) => t.id === up.taskId);
+      if (attach.taskId === up.taskId) {
+        attach.items.push({ id: up.id, ...item });
+        renderAttachments();
+      } else {
+        toast(`"${item.ad}" yüklendi.`);
+      }
+      if (task) refreshAttachmentCount(task);
+    } catch (err) {
+      up.error = err.message;
+      if (attach.taskId === up.taskId) renderAttachments();
+      else toast(`"${up.file.name}" yüklenemedi: ${err.message}`);
+      cloud.store.remove(base).catch(() => {});
+    }
+  }
+
+  async function downloadAttachment(item) {
+    if (attach.downloads.has(item.id) && !attach.downloads.get(item.id).error) return;
+    const state = { progress: 0, error: null };
+    attach.downloads.set(item.id, state);
+    renderAttachments();
+    const base = `files/${taskKey(attach.taskId)}/${item.id}/p`;
+    try {
+      const chunks = [];
+      for (let i = 0; i < item.parca; i += 1) {
+        const b64 = await cloud.store.get(`${base}/${i}`);
+        if (typeof b64 !== 'string') throw new Error('Dosya eksik veya bozuk.');
+        chunks.push(base64ToBytes(b64));
+        state.progress = (i + 1) / item.parca;
+        renderAttachments();
+      }
+      download(item.ad, new Blob(chunks, { type: item.tur || 'application/octet-stream' }));
+      attach.downloads.delete(item.id);
+    } catch (err) {
+      state.error = err.message;
+    }
+    renderAttachments();
+  }
+
+  async function deleteAttachment(item) {
+    if (!confirm(`"${item.ad}" eki silinsin mi? Bu işlem geri alınamaz.`)) return;
+    const key = taskKey(attach.taskId);
+    try {
+      await cloud.store.patch({ [`attachments/${key}/${item.id}`]: null, [`files/${key}/${item.id}`]: null });
+    } catch (err) {
+      alert(`Ek silinemedi: ${err.message}`);
+      return;
+    }
+    attach.items = attach.items.filter((x) => x !== item);
+    renderAttachments();
+    const task = attachTask();
+    if (task) refreshAttachmentCount(task);
+  }
+
+  function setupAttachments() {
+    const input = $('#attach-input');
+    $('#btn-attach').addEventListener('click', () => input.click());
+    $('#btn-attach-link').addEventListener('click', () => input.click());
+    input.addEventListener('change', () => { addFiles(input.files); input.value = ''; });
+    const zone = $('#attachments');
+    const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    zone.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (!$('#attach-drop').hidden) zone.classList.add('is-dragover');
+    });
+    zone.addEventListener('dragleave', (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('is-dragover'); });
+    zone.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      zone.classList.remove('is-dragover');
+      if (!$('#attach-drop').hidden) addFiles(e.dataTransfer.files);
+    });
+    // Files dropped elsewhere in the dialog must not make the browser open them.
+    const dialog = $('#task-dialog');
+    dialog.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+    dialog.addEventListener('drop', (e) => { if (hasFiles(e)) e.preventDefault(); });
   }
 
   function renderSummary() {
@@ -1044,7 +1660,7 @@
       return false;
     }
     const name = task.gorev ? `"${task.gorev}"` : 'Bu (isimsiz)';
-    if (!confirm(`${name} görevi silinsin mi? Bu işlem geri alınamaz.`)) return false;
+    if (!confirm(`${name} görevi silinsin mi?${attachmentsEnabled ? ' Açıklaması ve ekleri de silinir.' : ''} Bu işlem geri alınamaz.`)) return false;
     data.tasks = data.tasks.filter((t) => t.id !== task.id);
     ui.pinned.delete(task.id);
     save();
@@ -1208,13 +1824,48 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function exportJson() {
+  // Shared database: descriptions live in /details; fetched in one request for backups/exports.
+  async function fetchDescriptions() {
+    if (!cloud || !auth) return new Map(data.tasks.map((t) => [t.id, t.aciklama || '']));
+    const all = await cloud.store.get('details');
+    const byKey = new Map(Object.entries(all || {}));
+    return new Map(data.tasks.map((t) => {
+      const d = byKey.get(taskKey(t.id));
+      return [t.id, sanitizeHtml(d && d.aciklama)];
+    }));
+  }
+
+  async function exportJson() {
+    let descriptions;
+    try {
+      descriptions = await fetchDescriptions();
+    } catch (err) {
+      alert(`Açıklamalar alınamadı, yedek oluşturulmadı: ${err.message}`);
+      return;
+    }
     data.meta.lastBackupAt = nowIso();
     save();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const out = { ...data, tasks: data.tasks.map((t) => ({ ...t, aciklama: descriptions.get(t.id) || '' })) };
+    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
     download(`gorevler-yedek-${todayIso()}.json`, blob);
     renderBackupInfo();
-    toast('Yedek dosyası indirildi.');
+    toast(attachmentsEnabled ? 'Yedek dosyası indirildi (ekler yedeğe dahil değildir).' : 'Yedek dosyası indirildi.');
+  }
+
+  // Signed-in import: descriptions from the backup are written to /details.
+  async function importDescriptions(tasks) {
+    let failed = 0;
+    for (const t of tasks) {
+      try {
+        await cloud.store.put(`details/${taskKey(t.id)}`, { aciklama: t.aciklama, updatedAt: nowIso(), updatedBy: myUsername() || auth.email });
+        const local = data.tasks.find((x) => x.id === t.id);
+        if (local) applyChange(local, 'aciklamaVar', true);
+      } catch (err) {
+        failed += 1;
+      }
+    }
+    save();
+    if (failed) toast(`${failed} görevin açıklaması yüklenemedi.`);
   }
 
   function importJson(file) {
@@ -1231,8 +1882,10 @@
         if (!cloud.ready) { alert('Önce ortak veritabanı bağlantısının kurulmasını bekleyin.'); return; }
         const msg = `Yedekteki ${incoming.tasks.length} görev ortak listeye eklenecek (aynı görevler güncellenir, mevcut görevler silinmez). Devam edilsin mi?`;
         if (!confirm(msg)) return;
+        const withDescriptions = auth ? incoming.tasks.filter((t) => t.aciklama) : [];
         mergeIncoming(incoming);
         save();
+        if (withDescriptions.length) importDescriptions(withDescriptions);
         toast('Yedek ortak listeye yükleniyor…');
         return;
       }
@@ -1275,7 +1928,15 @@
       alert(err.message);
       return;
     }
-    const headers = ['Alan', 'Görev', 'Sahip', 'Durum', 'Öncelik', 'Tamamlanma Tarihi', 'Tamamlandığı Zaman'];
+    let descriptions = new Map();
+    if (richTasks) {
+      try {
+        descriptions = await fetchDescriptions();
+      } catch (err) {
+        if (!confirm(`Açıklamalar alınamadı (${err.message}). Excel açıklamasız oluşturulsun mu?`)) return;
+      }
+    }
+    const headers = ['No', 'Alan', 'Görev', 'Sahip', 'Durum', 'Öncelik', 'Tamamlanma Tarihi', 'Tamamlandığı Zaman', 'Açıklama'];
     const sorted = [...data.tasks].sort((a, b) => {
       const ad = a.durum === DONE ? 1 : 0;
       const bd = b.durum === DONE ? 1 : 0;
@@ -1286,14 +1947,14 @@
       ui.sort = prevSort;
       return r;
     });
-    const aoa = [headers, ...sorted.map((t) => [t.alan, t.gorev, t.sahip, t.durum, t.oncelik, '', t.completedAt ? formatDateTime(t.completedAt) : ''])];
+    const aoa = [headers, ...sorted.map((t) => [t.no || '', t.alan, t.gorev, t.sahip, t.durum, t.oncelik, '', t.completedAt ? formatDateTime(t.completedAt) : '', htmlToText(descriptions.get(t.id) || '')])];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     sorted.forEach((t, i) => {
       if (!t.tamamlanmaTarihi) return;
-      const ref = XLSX.utils.encode_cell({ r: i + 1, c: 5 });
+      const ref = XLSX.utils.encode_cell({ r: i + 1, c: 6 });
       ws[ref] = { t: 'n', v: excelSerial(t.tamamlanmaTarihi), z: 'dd.mm.yyyy' };
     });
-    ws['!cols'] = [{ wch: 24 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 20 }];
+    ws['!cols'] = [{ wch: 6 }, { wch: 24 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 20 }, { wch: 60 }];
     ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(sorted.length, 1), c: headers.length - 1 } }) };
 
     const maxLen = Math.max(...LIST_KEYS.map((k) => data.lists[k].length));
@@ -1317,12 +1978,18 @@
     // existed keep their signature and older clients/rules keep accepting default tasks.
     if (t.oncelik !== DEFAULT_PRIORITY) v.oncelik = t.oncelik;
     if (t.createdBy) v.createdBy = t.createdBy;
+    if (t.no) v.no = t.no;
+    if (t.aciklamaVar) v.aciklamaVar = true;
+    if (t.ekSayisi) v.ekSayisi = t.ekSayisi;
     return v;
   };
   const taskSig = (t) => {
     const sig = [t.gorev, t.alan, t.sahip, t.durum, t.tamamlanmaTarihi, t.completedAt || ''];
     if (t.oncelik !== DEFAULT_PRIORITY) sig.push(t.oncelik);
     if (t.createdBy) sig.push(`by:${t.createdBy}`);
+    if (t.no) sig.push(`no:${t.no}`);
+    if (t.aciklamaVar) sig.push('desc');
+    if (t.ekSayisi) sig.push(`files:${t.ekSayisi}`);
     return JSON.stringify(sig);
   };
   const listSig = (values) => values.join('\n');
@@ -1343,12 +2010,16 @@
       updatedAt: str(v.updatedAt) || nowIso(),
       completedAt: str(v.completedAt) || null,
       createdBy: str(v.createdBy),
+      no: normalizeNo(v.no),
+      aciklama: '',
+      aciklamaVar: v.aciklamaVar === true,
+      ekSayisi: normalizeCount(v.ekSayisi),
     };
   }
 
   const isEditing = () => {
     const a = document.activeElement;
-    return !!(a && a.closest && a.closest('#task-body, dialog, .filter-panel')) || $('#task-dialog').open || $('#settings-dialog').open;
+    return !!(a && a.closest && ((a.closest('#task-body') && a.matches('input, select, textarea')) || a.closest('dialog, .filter-panel'))) || $('#task-dialog').open || $('#settings-dialog').open;
   };
 
   function renderWhenIdle() {
@@ -1388,7 +2059,11 @@
       const known = cloud.remote.tasks[s.id];
       const local = byId.get(s.id);
       remote.tasks[s.id] = taskSig(s);
-      if (local && known !== undefined && taskSig(local) !== known) merged.push(local);
+      if (local && known !== undefined && taskSig(local) !== known) {
+        // Keep the unsynced local edit, but a number given on the server always wins (it can't change).
+        if (s.no && !local.no) local.no = s.no;
+        merged.push(local);
+      }
       else if (!local && known !== undefined) continue; // deleted here, delete pending
       else if (local) merged.push(Object.assign(local, s)); // keep object identity for open editors
       else merged.push(s);
@@ -1414,7 +2089,14 @@
     }
     const ids = new Set(data.tasks.map((t) => t.id));
     for (const id of Object.keys(cloud.remote.tasks)) {
-      if (!ids.has(id)) ops.push({ kind: 'tasks', id, path: taskPath(id), value: null });
+      if (ids.has(id)) continue;
+      const op = { kind: 'tasks', id, path: taskPath(id), value: null };
+      // A deleted task takes its description and attachments with it.
+      if (auth) {
+        const key = window.TaskCloud.encodeKey(id);
+        op.also = { [`details/${key}`]: null, [`attachments/${key}`]: null, [`files/${key}`]: null };
+      }
+      ops.push(op);
     }
     for (const key of LIST_KEYS) {
       const sig = listSig(data.lists[key]);
@@ -1424,7 +2106,7 @@
   }
 
   async function pushOps(ops) {
-    const results = await cloud.store.write(ops.map(({ path, value }) => ({ path, value })));
+    const results = await cloud.store.write(ops.map(({ path, value, also }) => ({ path, value, also })));
     let rejected = 0;
     ops.forEach((op, i) => {
       const store = cloud.remote[op.kind];
@@ -1453,6 +2135,10 @@
     const fresh = local.tasks.filter((t) => !ids.has(t.id));
     if (fresh.length && confirm(`Bu tarayıcıda ortak listeye aktarılmamış ${fresh.length} görev var. Ortak listeye yüklensin mi?\n\n(İptal ederseniz görevler bu tarayıcıda kalır, daha sonra Yedek Al / Yedekten Yükle ile aktarabilirsiniz.)`)) {
       mergeIncoming(local);
+      if (auth) {
+        const withDescriptions = fresh.filter((t) => t.aciklama);
+        if (withDescriptions.length) importDescriptions(withDescriptions);
+      }
       toast(`${fresh.length} görev ortak listeye yükleniyor…`);
     }
     localStorage.setItem(MIGRATED_KEY, nowIso());
@@ -1468,9 +2154,16 @@
       }
     }
     for (const t of incoming.tasks) {
+      // Numbers, attachment counters and descriptions belong to the shared database: keep the
+      // server's values for known tasks; new tasks get a fresh number.
       const existing = data.tasks.find((x) => x.id === t.id);
-      if (existing) Object.assign(existing, t);
-      else data.tasks.push(t);
+      const copy = { ...t, aciklama: '' };
+      if (existing) {
+        Object.assign(copy, { no: existing.no, ekSayisi: existing.ekSayisi, aciklamaVar: existing.aciklamaVar });
+        Object.assign(existing, copy);
+      } else {
+        data.tasks.push(Object.assign(copy, { no: null, ekSayisi: 0, aciklamaVar: false }));
+      }
     }
     applyDirectory();
     resetPinned();
@@ -1534,6 +2227,7 @@
     clearTimeout(cloud.timer);
     try {
       if (pull) await runPull();
+      await claimNumbers();
       const ops = buildOps();
       if (ops.length) {
         setCloudStatus('saving');
@@ -1562,6 +2256,61 @@
   }
 
   const hasPendingChanges = () => !!(cloud && cloud.ready && (cloud.status === 'saving' || buildOps().length));
+
+  // Task numbers (signed-in mode). A number is taken by creating /taskNumbers/{no}, which the
+  // rules allow only once, in the same atomic update that writes the task. If another browser
+  // took the number first the whole update is rejected and we retry with fresh data, so two
+  // tasks never share a number. Existing tasks are numbered by creation date.
+  let numbersRetryAt = 0;
+  let numbersWarned = false;
+
+  async function claimNumbers() {
+    if (!auth || !cloud.ready || Date.now() < numbersRetryAt) return;
+    try {
+      if (await tryClaimNumbers()) return;
+    } catch (err) {
+      // A rejected read/write here means the rules don't allow numbering (yet); it must not
+      // be mistaken for losing access to the app.
+      if (err.code !== 'denied') throw err;
+    }
+    numbersRetryAt = Date.now() + 60000;
+    if (!numbersWarned) {
+      numbersWarned = true;
+      toast('Görev numaraları atanamadı; veritabanı kurallarının güncel olduğundan emin olun. Daha sonra tekrar denenecek.');
+    }
+  }
+
+  // Returns true when every task has a number.
+  async function tryClaimNumbers() {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const pending = data.tasks.filter((t) => !t.no).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      if (!pending.length) return true;
+      const taken = await cloud.store.get('taskNumbers', 'shallow=true');
+      let next = Math.max(0, ...Object.keys(taken || {}).map(Number).filter(Number.isFinite), ...data.tasks.map((t) => t.no || 0)) + 1;
+      const patch = {};
+      const assigned = pending.map((t) => {
+        const no = next++;
+        patch[`taskNumbers/${no}`] = t.id;
+        patch[taskPath(t.id)] = taskValue({ ...t, no });
+        return [t, no];
+      });
+      try {
+        await cloud.store.patch(patch);
+      } catch (err) {
+        if (err.code !== 'denied') throw err;
+        await runPull(); // someone else took a number (or numbered these tasks) – retry with fresh data
+        continue;
+      }
+      for (const [t, no] of assigned) {
+        t.no = no;
+        cloud.remote.tasks[t.id] = taskSig(t);
+      }
+      persistCloudCache();
+      renderWhenIdle();
+      return true;
+    }
+    return false; // still rejected: most likely the database rules haven't been published yet
+  }
 
   async function startCloud() {
     document.body.classList.add('cloud-mode');
@@ -1867,8 +2616,13 @@
     gorevInput.addEventListener('input', updateTaskFormState);
     gorevInput.addEventListener('blur', () => { if ($('#task-dialog').open && !gorevInput.value.trim()) showGorevError(true); });
     document.querySelectorAll('#task-dialog [data-close]').forEach((btn) => {
-      btn.addEventListener('click', () => $('#task-dialog').close());
+      btn.addEventListener('click', closeTaskDialog);
     });
+    $('#task-dialog').addEventListener('cancel', (e) => { e.preventDefault(); closeTaskDialog(); });
+    $('#task-dialog').addEventListener('close', () => { desc.token += 1; attach.token += 1; attach.taskId = null; });
+    setupEditor();
+    setupAttachments();
+    if (!richTasks) document.body.classList.add('no-task-extras');
     $('#task-delete').addEventListener('click', () => {
       if (editingTask && deleteTask(editingTask)) $('#task-dialog').close();
     });

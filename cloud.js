@@ -1,8 +1,12 @@
 // Firebase Realtime Database REST client – no SDK.
 // With cfg.getToken (Firebase Authentication) every request carries the user's ID token.
-// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, oncelik?, tamamlanmaTarihi, completedAt, createdAt, updatedAt, createdBy? }
+// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, oncelik?, tamamlanmaTarihi, completedAt, createdAt, updatedAt, createdBy?, no?, aciklamaVar?, ekSayisi? }
 //               /lists/{alan|sahip|durum} = values separated by "\n"
 //               /users/{encoded e-mail} = { ad, soyad, kullaniciAdi, email, sira } (read-only, maintained in the console)
+//               /taskNumbers/{no} = task key (create-only registry that makes task numbers unique)
+//               /details/{key} = { aciklama (sanitized HTML), updatedAt, updatedBy }
+//               /attachments/{key}/{fileId} = { ad, boyut, tur, yukleyen, yuklenmeTarihi, parca }
+//               /files/{key}/{fileId} = { yukleyen, p: { 0: base64, 1: base64, ... } }
 (() => {
   'use strict';
 
@@ -28,13 +32,14 @@
       throw new CloudError(0, `Geçersiz veritabanı adresi: ${cfg.databaseUrl}`);
     }
 
-    async function request(method, path, body) {
+    async function request(method, path, body, query = '') {
       let token = cfg.getToken ? await authToken() : null;
       let retriedAuth = false;
       for (let attempt = 0; ; attempt += 1) {
         let res;
         try {
-          res = await fetch(`${base}/${path}.json${token ? `?auth=${encodeURIComponent(token)}` : ''}`, {
+          const params = [token ? `auth=${encodeURIComponent(token)}` : '', query].filter(Boolean).join('&');
+          res = await fetch(`${base}/${path}.json${params ? `?${params}` : ''}`, {
             method,
             headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
             body: body === undefined ? undefined : JSON.stringify(body),
@@ -89,33 +94,46 @@
           users: users === undefined ? undefined : Object.values(users || {}).filter((u) => u && typeof u === 'object'),
         };
       },
-      // updates: [{ path: 'tasks/<id>' | 'lists/<key>', value | null }]
+      // updates: [{ path: 'tasks/<id>' | 'lists/<key>', value | null, also?: { path: value } }]
       // Returns per-update { ok, status, message }. Tries one atomic multi-path update first;
-      // if the rules reject it, retries each path on its own so one bad write doesn't block the rest.
+      // if the rules reject it, retries each update on its own so one bad write doesn't block the rest.
+      // "also" holds dependent paths written together with the update (e.g. a deleted task's
+      // attachments); if they are rejected, the update is retried without them.
       async write(updates) {
         if (!updates.length) return [];
-        const patch = Object.fromEntries(updates.map((u) => [u.path, u.value]));
+        const entries = (u, withAlso = true) => [[u.path, u.value], ...(withAlso ? Object.entries(u.also || {}) : [])];
+        const patch = Object.fromEntries(updates.flatMap((u) => entries(u)));
         try {
           await request('PATCH', '', patch);
           return updates.map(() => ({ ok: true }));
         } catch (err) {
-          if (err.code !== 'denied' || updates.length === 1) {
-            if (updates.length === 1 && err.code === 'denied') return [{ ok: false, status: err.status, message: err.message }];
-            throw err;
-          }
+          if (err.code !== 'denied') throw err;
+          if (updates.length === 1 && !updates[0].also) return [{ ok: false, status: err.status, message: err.message }];
         }
         const results = [];
         for (const u of updates) {
-          try {
-            await request('PATCH', '', { [u.path]: u.value });
-            results.push({ ok: true });
-          } catch (err) {
-            if (err.code !== 'denied') throw err;
-            results.push({ ok: false, status: err.status, message: err.message });
+          const attempts = u.also ? [true, false] : [false];
+          let result;
+          for (const withAlso of attempts) {
+            try {
+              await request('PATCH', '', Object.fromEntries(entries(u, withAlso)));
+              result = { ok: true };
+              break;
+            } catch (err) {
+              if (err.code !== 'denied') throw err;
+              result = { ok: false, status: err.status, message: err.message };
+            }
           }
+          results.push(result);
         }
         return results;
       },
+      // Generic helpers for on-demand data (descriptions, attachments, task numbers).
+      get: (path, query = '') => request('GET', path, undefined, query),
+      put: (path, value) => request('PUT', path, value),
+      // Atomic multi-path update: all paths are written or none (throws CloudError on rejection).
+      patch: (updates) => request('PATCH', '', updates),
+      remove: (path) => request('DELETE', path),
       encodeKey,
     };
   }
