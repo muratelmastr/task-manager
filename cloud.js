@@ -1,6 +1,8 @@
-// Firebase Realtime Database REST client – no SDK, no login.
-// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, oncelik?, tamamlanmaTarihi, completedAt, createdAt, updatedAt }
+// Firebase Realtime Database REST client – no SDK.
+// With cfg.getToken (Firebase Authentication) every request carries the user's ID token.
+// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, oncelik?, tamamlanmaTarihi, completedAt, createdAt, updatedAt, createdBy? }
 //               /lists/{alan|sahip|durum} = values separated by "\n"
+//               /users/{encoded e-mail} = { ad, soyad, kullaniciAdi, email, sira } (read-only, maintained in the console)
 (() => {
   'use strict';
 
@@ -27,10 +29,12 @@
     }
 
     async function request(method, path, body) {
+      let token = cfg.getToken ? await authToken() : null;
+      let retriedAuth = false;
       for (let attempt = 0; ; attempt += 1) {
         let res;
         try {
-          res = await fetch(`${base}/${path}.json`, {
+          res = await fetch(`${base}/${path}.json${token ? `?auth=${encodeURIComponent(token)}` : ''}`, {
             method,
             headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
             body: body === undefined ? undefined : JSON.stringify(body),
@@ -47,6 +51,12 @@
         let json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
         if (!res.ok) {
+          if ((res.status === 401 || res.status === 403) && token && !retriedAuth) {
+            // The ID token may have expired or been revoked: refresh once and retry.
+            retriedAuth = true;
+            const fresh = await authToken(true);
+            if (fresh !== token) { token = fresh; continue; }
+          }
           const msg = (json && json.error) || text || res.statusText;
           if (res.status === 401 || res.status === 403) throw new CloudError(res.status, `İzin reddedildi (${msg}). Veritabanı kurallarını kontrol edin (README).`, 'denied');
           if (res.status === 404) throw new CloudError(404, 'Veritabanı bulunamadı. config.js içindeki databaseUrl değerini kontrol edin.', 'notfound');
@@ -56,13 +66,27 @@
       }
     }
 
+    async function authToken(force = false) {
+      try {
+        return await cfg.getToken(force);
+      } catch (err) {
+        if (err.code === 'network') throw new CloudError(0, err.message, 'network');
+        throw new CloudError(401, err.message, 'auth');
+      }
+    }
+
     return {
-      // Returns { tasks: [task...], lists: { key: [values] | undefined } }
+      // Returns { tasks: [task...], lists: { key: [values] | undefined }, users: [user...] | undefined }
       async fetchAll() {
-        const [tasks, lists] = await Promise.all([request('GET', 'tasks'), request('GET', 'lists')]);
+        const [tasks, lists, users] = await Promise.all([
+          request('GET', 'tasks'),
+          request('GET', 'lists'),
+          cfg.getToken ? request('GET', 'users') : Promise.resolve(undefined),
+        ]);
         return {
           tasks: Object.values(tasks || {}).filter((t) => t && typeof t === 'object'),
           lists: Object.fromEntries(Object.entries(lists || {}).map(([k, v]) => [k, String(v).split(/\r?\n/)])),
+          users: users === undefined ? undefined : Object.values(users || {}).filter((u) => u && typeof u === 'object'),
         };
       },
       // updates: [{ path: 'tasks/<id>' | 'lists/<key>', value | null }]

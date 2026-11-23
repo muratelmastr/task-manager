@@ -8,6 +8,9 @@
   const POLL_MS = 30000;
   const config = window.TASK_MANAGER_CONFIG || {};
   const cloudEnabled = !!(config.databaseUrl && window.TaskCloud);
+  // With an apiKey every team member signs in with their own e-mail and password.
+  const auth = cloudEnabled && config.apiKey && window.TaskAuth ? window.TaskAuth.createAuth(config) : null;
+  const LOGIN_MESSAGE_KEY = 'taskManager.loginMessage';
   const DONE = 'Tamamlandı';
   const RED_DAYS = 3;
   const YELLOW_DAYS = 7;
@@ -212,6 +215,7 @@
         createdAt: created,
         updatedAt: str(t.updatedAt) || created,
         completedAt: durum === DONE ? (str(t.completedAt) || null) : null,
+        createdBy: str(t.createdBy),
       };
     });
 
@@ -249,17 +253,17 @@
       const raw = JSON.parse(localStorage.getItem(CLOUD_CACHE_KEY));
       if (raw && raw.data) {
         const remote = raw.remote && raw.remote.tasks && raw.remote.lists ? raw.remote : { tasks: {}, lists: {} };
-        return { data: normalize(raw.data), remote, lastSyncAt: raw.lastSyncAt || null };
+        return { data: normalize(raw.data), remote, lastSyncAt: raw.lastSyncAt || null, users: Array.isArray(raw.users) ? raw.users : null };
       }
     } catch (err) {
       console.warn('Önbellek okunamadı', err);
     }
-    return { data: seedData(), remote: { tasks: {}, lists: {} }, lastSyncAt: null };
+    return { data: seedData(), remote: { tasks: {}, lists: {} }, lastSyncAt: null, users: null };
   }
 
   function persistCloudCache() {
     try {
-      localStorage.setItem(CLOUD_CACHE_KEY, JSON.stringify({ data, remote: cloud.remote, lastSyncAt: cloud.lastSyncAt }));
+      localStorage.setItem(CLOUD_CACHE_KEY, JSON.stringify({ data, remote: cloud.remote, lastSyncAt: cloud.lastSyncAt, users: directory }));
     } catch (err) {
       console.warn('Önbellek yazılamadı', err);
     }
@@ -289,13 +293,57 @@
   } : null;
 
   let data;
+  // Team members from /users (signed-in mode only): [{ ad, soyad, kullaniciAdi, email, sira }]
+  let directory = null;
+  let currentUser = null;
   if (cloud) {
     const cache = loadCloudCache();
     data = cache.data;
     Object.assign(cloud, { remote: cache.remote, lastSyncAt: cache.lastSyncAt });
+    if (auth) setDirectory(cache.users);
   } else {
     data = load();
     save();
+  }
+
+  // ---------- Users (signed-in mode) ----------
+
+  function setDirectory(users) {
+    const list = (Array.isArray(users) ? users : [])
+      .filter((u) => u && typeof u === 'object')
+      .map((u) => ({ ad: str(u.ad), soyad: str(u.soyad), kullaniciAdi: str(u.kullaniciAdi), email: str(u.email).toLowerCase(), sira: Number(u.sira) || 0 }))
+      .filter((u) => u.kullaniciAdi && u.email)
+      .sort((a, b) => a.sira - b.sira || collator.compare(a.kullaniciAdi, b.kullaniciAdi));
+    directory = list.length ? list : null;
+    currentUser = directory && auth ? directory.find((u) => u.email === auth.email) || null : null;
+  }
+
+  const fullName = (u) => [u.ad, u.soyad].filter(Boolean).join(' ') || u.kullaniciAdi;
+  const userByName = (name) => (directory && name ? directory.find((u) => u.kullaniciAdi === name) : null);
+
+  // Names that were used for a person before accounts existed ("Murat E.", "Murat Elmas", "Murat").
+  function ownerAliases(u) {
+    const aliases = [u.kullaniciAdi, u.ad];
+    if (u.ad && u.soyad) aliases.push(`${u.ad} ${u.soyad}`, `${u.ad} ${u.soyad[0]}.`, `${u.ad} ${u.soyad[0]}`);
+    return aliases.filter(Boolean);
+  }
+
+  // The Sahip list mirrors the user directory; owner names that unambiguously belong to a
+  // user are rewritten to their user name. Returns true when anything changed.
+  function applyDirectory() {
+    if (!directory) return false;
+    let changed = false;
+    const names = directory.map((u) => u.kullaniciAdi);
+    if (data.lists.sahip.join('\n') !== names.join('\n')) {
+      data.lists.sahip = names;
+      changed = true;
+    }
+    for (const t of data.tasks) {
+      if (!t.sahip || names.includes(t.sahip)) continue;
+      const matches = directory.filter((u) => ownerAliases(u).some((a) => sameText(a, t.sahip)));
+      if (matches.length === 1 && applyChange(t, 'sahip', matches[0].kullaniciAdi)) changed = true;
+    }
+    return changed;
   }
 
   const ui = {
@@ -769,6 +817,9 @@
     // createdAt is set automatically on creation; new tasks don't have one yet.
     $('#task-created-field').hidden = !task;
     $('#task-created').value = task ? (formatDateTime(task.createdAt) || '—') : '';
+    const creator = task ? userByName(task.createdBy) : null;
+    $('#task-created-by-field').hidden = !task || !(auth || task.createdBy);
+    $('#task-created-by').value = task ? (creator ? fullName(creator) : task.createdBy || '—') : '';
     const del = $('#task-delete');
     del.hidden = !task;
     del.disabled = !!task && task.durum === DONE;
@@ -877,10 +928,23 @@
     return !!(ui.search.trim() || ui.showCompleted || ui.due || LIST_KEYS.some((k) => ui.filters[k].length));
   }
 
+  const isMyTasks = () => !!currentUser && ui.filters.sahip.length === 1 && ui.filters.sahip[0] === currentUser.kullaniciAdi;
+
+  function toggleMyTasks() {
+    if (!currentUser) return;
+    ui.filters.sahip = isMyTasks() ? [] : [currentUser.kullaniciAdi];
+    syncFilterControl('sahip');
+    resetPinned();
+    renderView();
+    renderSummary();
+    updateFilterUi();
+  }
+
   function updateFilterUi() {
     for (const key of LIST_KEYS) {
       $(`#filter-${key}`).closest('.filter-control').classList.toggle('is-active', ui.filters[key].length > 0);
     }
+    $('#btn-my-tasks').setAttribute('aria-pressed', String(isMyTasks()));
     $('#btn-clear-filters').hidden = !hasActiveFilters();
   }
 
@@ -957,6 +1021,7 @@
       createdAt: ts,
       updatedAt: ts,
       completedAt: null,
+      createdBy: currentUser ? currentUser.kullaniciAdi : '',
     };
   }
 
@@ -1063,6 +1128,7 @@
     const flash = settingsFlash;
     settingsFlash = null;
     container.replaceChildren(...LIST_KEYS.map((key) => {
+      if (key === 'sahip' && directory) return buildUserListSection();
       const list = data.lists[key];
       const items = list.map((value, i) => {
         const fixed = key === 'durum' && value === DONE;
@@ -1113,6 +1179,23 @@
         el('div', { class: 'add-row' }, addInput, el('button', { type: 'button', class: 'btn btn-sm', onclick: doAdd }, icon('plus', 'icon-sm'), 'Ekle')),
       );
     }));
+  }
+
+  // Signed-in mode: owners are the user accounts, managed in the Firebase console.
+  function buildUserListSection() {
+    const items = directory.map((u) => {
+      const used = usageCount('sahip', u.kullaniciAdi);
+      return el('li', { class: 'settings-user' },
+        buildAvatar(u.kullaniciAdi, 'avatar-sm'),
+        el('span', { class: 'settings-user-name' },
+          el('strong', { textContent: u.kullaniciAdi }),
+          el('span', { class: 'settings-user-meta', textContent: `${fullName(u)} · ${u.email}` })),
+        el('span', { class: `badge usage${used ? '' : ' is-zero'}`, title: 'Kullanıldığı görev sayısı', textContent: `${used} görev` }));
+    });
+    return el('section', { class: 'settings-list' },
+      el('h3', {}, LIST_LABELS.sahip, el('span', { class: 'count-badge', textContent: String(directory.length) })),
+      el('p', { class: 'settings-note' }, icon('lock', 'icon-sm'), 'Sahip listesi kullanıcı hesaplarından otomatik oluşur.'),
+      el('ul', {}, ...items));
   }
   // ---------- Import / Export ----------
 
@@ -1225,7 +1308,7 @@
     XLSX.writeFile(wb, `gorevler-${todayIso()}.xlsx`);
   }
 
-  // ---------- Cloud sync (Firebase Realtime Database, no login) ----------
+  // ---------- Cloud sync (Firebase Realtime Database) ----------
 
   const taskValue = (t) => {
     const v = { id: t.id, gorev: t.gorev, alan: t.alan, sahip: t.sahip, durum: t.durum, tamamlanmaTarihi: t.tamamlanmaTarihi, createdAt: t.createdAt, updatedAt: t.updatedAt };
@@ -1233,11 +1316,13 @@
     // The default priority is stored as a missing field, so records written before priorities
     // existed keep their signature and older clients/rules keep accepting default tasks.
     if (t.oncelik !== DEFAULT_PRIORITY) v.oncelik = t.oncelik;
+    if (t.createdBy) v.createdBy = t.createdBy;
     return v;
   };
   const taskSig = (t) => {
     const sig = [t.gorev, t.alan, t.sahip, t.durum, t.tamamlanmaTarihi, t.completedAt || ''];
     if (t.oncelik !== DEFAULT_PRIORITY) sig.push(t.oncelik);
+    if (t.createdBy) sig.push(`by:${t.createdBy}`);
     return JSON.stringify(sig);
   };
   const listSig = (values) => values.join('\n');
@@ -1257,6 +1342,7 @@
       createdAt: str(v.createdAt) || nowIso(),
       updatedAt: str(v.updatedAt) || nowIso(),
       completedAt: str(v.completedAt) || null,
+      createdBy: str(v.createdBy),
     };
   }
 
@@ -1386,6 +1472,7 @@
       if (existing) Object.assign(existing, t);
       else data.tasks.push(t);
     }
+    applyDirectory();
     resetPinned();
     persistCloudCache();
     render();
@@ -1429,10 +1516,16 @@
 
   async function runPull() {
     const server = await cloud.store.fetchAll();
+    if (auth) {
+      setDirectory(server.users);
+      if (!currentUser) throw Object.assign(new Error('Bu hesabın uygulamaya erişimi yok.'), { code: 'noaccess' });
+    }
     const firstLoad = !cloud.ready;
-    const changed = mergeServer(server);
+    let changed = mergeServer(server);
+    if (applyDirectory()) changed = true;
     cloud.ready = true;
     persistCloudCache();
+    if (auth) renderUser();
     if (firstLoad) { render(); offerMigration(); } else if (changed) renderWhenIdle();
   }
 
@@ -1451,6 +1544,12 @@
       setCloudStatus('saved');
     } catch (err) {
       console.warn('Eşitleme hatası', err);
+      if (auth && (err.code === 'noaccess' || err.code === 'denied')) {
+        // Signed in, but not on the team list (or removed from it).
+        endSession('Bu hesabın uygulamaya erişimi yok. Yöneticinizle görüşün.', { clearCache: true });
+        return;
+      }
+      if (auth && err.code === 'auth' && !auth.session) return; // session ended – reloading to the login screen
       const offline = !navigator.onLine || err.code === 'network';
       setCloudStatus(offline ? 'offline' : 'error', err.message);
       if (!cloud.ready) {
@@ -1469,7 +1568,7 @@
     $('#cloud-bar').hidden = false;
     $('#storage-note').textContent = 'Veriler ekibin ortak bulut veritabanında saklanır ve her değişiklik otomatik kaydedilir.';
     try {
-      cloud.store = window.TaskCloud.createStore(config);
+      cloud.store = window.TaskCloud.createStore(auth ? { ...config, getToken: (force) => auth.getToken(force) } : config);
     } catch (err) {
       setCloudStatus('error', err.message);
       $('#cloud-error').hidden = false;
@@ -1485,15 +1584,154 @@
     document.addEventListener('focusout', () => setTimeout(() => { if (cloud.renderPending) renderWhenIdle(); }, 0));
     ['task-dialog', 'settings-dialog'].forEach((id) => $(`#${id}`).addEventListener('close', () => { if (cloud.renderPending) renderWhenIdle(); }));
     window.addEventListener('beforeunload', (e) => {
-      if (hasPendingChanges()) { e.preventDefault(); e.returnValue = ''; }
+      if (!leaving && hasPendingChanges()) { e.preventDefault(); e.returnValue = ''; }
     });
+  }
+
+  // ---------- Sign-in ----------
+
+  let leaving = false;
+
+  // Signs out locally and reloads to the login screen (optionally with a message).
+  function endSession(message, { clearCache = false } = {}) {
+    if (leaving) return;
+    leaving = true;
+    auth.signOut();
+    if (clearCache) localStorage.removeItem(CLOUD_CACHE_KEY);
+    if (message) sessionStorage.setItem(LOGIN_MESSAGE_KEY, message);
+    location.reload();
+  }
+
+  function logout() {
+    if (hasPendingChanges() && !confirm('Henüz kaydedilmemiş değişiklikler var. Çıkış yaparsanız bu değişiklikler kaybolur. Devam edilsin mi?')) return;
+    endSession(null, { clearCache: true });
+  }
+
+  async function changePassword() {
+    try {
+      await auth.sendPasswordReset(auth.email);
+      toast(`Şifre değiştirme bağlantısı ${auth.email} adresine gönderildi.`);
+    } catch (err) {
+      alert(`E-posta gönderilemedi: ${err.message}`);
+    }
+  }
+
+  function renderUser() {
+    const menu = $('#user-menu');
+    menu.hidden = !auth || !auth.session;
+    if (menu.hidden) return;
+    const name = currentUser ? fullName(currentUser) : auth.email;
+    const avatar = $('#user-avatar');
+    setTone(avatar, toneFor('sahip', currentUser ? currentUser.kullaniciAdi : auth.email));
+    avatar.textContent = initials(name);
+    $('#user-name').textContent = name;
+    $('#user-menu-name').textContent = name;
+    $('#user-menu-email').textContent = auth.email;
+    $('#btn-user-menu').title = `${name} (${auth.email})`;
+    $('#btn-my-tasks').hidden = !currentUser;
+  }
+
+  function showLoginMessage(text, kind = 'error') {
+    const box = $('#login-message');
+    box.hidden = !text;
+    box.textContent = text || '';
+    box.className = `login-message is-${kind}`;
+  }
+
+  function setLoginBusy(busy) {
+    const form = $('#login-form');
+    const submit = form.querySelector('.login-submit');
+    submit.disabled = busy;
+    submit.querySelector('.spinner').hidden = !busy;
+    submit.querySelector('.login-submit-label').textContent = busy ? 'Giriş yapılıyor…' : 'Giriş yap';
+    $('#btn-forgot').disabled = busy;
+    form.setAttribute('aria-busy', String(busy));
+  }
+
+  const looksLikeEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
+  function showLogin() {
+    document.body.classList.add('auth-locked');
+    $('#login-screen').hidden = false;
+    const message = sessionStorage.getItem(LOGIN_MESSAGE_KEY);
+    sessionStorage.removeItem(LOGIN_MESSAGE_KEY);
+    showLoginMessage(message);
+    const form = $('#login-form');
+    const field = (name) => form.elements[name];
+
+    const toggle = form.querySelector('.password-toggle');
+    toggle.addEventListener('click', () => {
+      const show = field('password').type === 'password';
+      field('password').type = show ? 'text' : 'password';
+      toggle.setAttribute('aria-pressed', String(show));
+      const label = show ? 'Şifreyi gizle' : 'Şifreyi göster';
+      toggle.setAttribute('aria-label', label);
+      toggle.title = label;
+      toggle.querySelector('use').setAttribute('href', show ? '#i-eye-off' : '#i-eye');
+    });
+
+    $('#btn-forgot').addEventListener('click', async () => {
+      const email = field('email').value.trim();
+      if (!looksLikeEmail(email)) {
+        showLoginMessage('Şifre sıfırlama bağlantısı için önce e-posta adresinizi girin.');
+        field('email').focus();
+        return;
+      }
+      setLoginBusy(true);
+      try {
+        await auth.sendPasswordReset(email);
+        showLoginMessage(`Hesap kayıtlıysa ${email} adresine şifre sıfırlama bağlantısı gönderildi. Gelen kutunuzu (ve istenmeyen klasörünü) kontrol edin.`, 'info');
+      } catch (err) {
+        showLoginMessage(err.message);
+      } finally {
+        setLoginBusy(false);
+      }
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = field('email').value.trim();
+      const password = field('password').value;
+      field('email').setAttribute('aria-invalid', String(!looksLikeEmail(email)));
+      field('password').setAttribute('aria-invalid', String(!password));
+      if (!looksLikeEmail(email)) { showLoginMessage('Geçerli bir e-posta adresi girin.'); field('email').focus(); return; }
+      if (!password) { showLoginMessage('Şifrenizi girin.'); field('password').focus(); return; }
+      setLoginBusy(true);
+      showLoginMessage('');
+      try {
+        await auth.signIn(email, password);
+      } catch (err) {
+        setLoginBusy(false);
+        showLoginMessage(err.message);
+        field('password').select();
+        return;
+      }
+      await startApp();
+      if (leaving) return;
+      document.body.classList.remove('auth-locked');
+      $('#login-screen').hidden = true;
+      field('password').value = '';
+      setLoginBusy(false);
+    });
+
+    field(field('email').value ? 'password' : 'email').focus();
+  }
+
+  async function startApp() {
+    if (auth) {
+      auth.onSessionEnded((reason) => endSession(reason));
+      applyDirectory();
+      renderUser();
+    }
+    render();
+    if (cloud) await startCloud();
   }
 
   // ---------- Event wiring ----------
 
-  function setupDataMenu() {
-    const button = $('#btn-data-menu');
-    const list = $('#data-menu-list');
+  function setupMenu(menuSel, buttonSel, listSel) {
+    const button = $(buttonSel);
+    const list = $(listSel);
     const items = () => [...list.querySelectorAll('[role="menuitem"]')];
     const isOpen = () => !list.hidden;
 
@@ -1530,7 +1768,7 @@
         close();
       }
     });
-    document.addEventListener('click', (e) => { if (!e.target.closest('#data-menu')) close(); });
+    document.addEventListener('click', (e) => { if (!e.target.closest(menuSel)) close(); });
   }
 
   function setupFilterMenus() {
@@ -1687,15 +1925,27 @@
       if (file) importJson(file);
       e.target.value = '';
     });
-    setupDataMenu();
+    setupMenu('#data-menu', '#btn-data-menu', '#data-menu-list');
+    setupMenu('#user-menu', '#btn-user-menu', '#user-menu-list');
+    $('#btn-logout').addEventListener('click', logout);
+    $('#btn-change-password').addEventListener('click', changePassword);
+    $('#btn-my-tasks').addEventListener('click', toggleMyTasks);
     setupHeader();
 
     // Keep multiple open tabs in sync.
     window.addEventListener('storage', (e) => {
+      if (auth && e.key === window.TaskAuth.SESSION_KEY) {
+        // Signed in or out in another tab (token refreshes keep the same user).
+        let email = '';
+        try { email = e.newValue ? JSON.parse(e.newValue).email : ''; } catch (err) { /* ignore */ }
+        if (email !== auth.email && !leaving) { leaving = true; location.reload(); }
+        return;
+      }
       if (cloud && e.key === CLOUD_CACHE_KEY && e.newValue) {
         const cache = loadCloudCache();
         data = cache.data;
         Object.assign(cloud, { remote: cache.remote, lastSyncAt: cache.lastSyncAt });
+        if (auth) { setDirectory(cache.users); applyDirectory(); renderUser(); }
         renderWhenIdle();
         renderCloudStatus();
         return;
@@ -1710,6 +1960,6 @@
   }
 
   bindEvents();
-  render();
-  if (cloud) startCloud();
+  if (auth && !auth.session) showLogin();
+  else startApp();
 })();
