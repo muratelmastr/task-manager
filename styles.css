@@ -1546,6 +1546,11 @@ body.view-timesheet .toolbar, body.view-timesheet .summary-bar { display: none; 
 body.view-board .filter-control[data-filter="durum"],
 body.view-board #show-completed-switch,
 body.view-board .summary .stat:not([data-due]) { display: none; }
+body.view-board .toolbar .summary-bar { margin: 0; }
+body.view-board .summary { flex-wrap: nowrap; gap: 6px; }
+body.view-board .stat { height: 26px; gap: 5px; padding: 0 8px; font-size: var(--font-xs); }
+body.view-board button.stat[aria-pressed="true"] { padding: 0 7px; }
+body.view-board .stat-hint { display: none; }
 .ts-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
 .ts-filters { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
 .ts-filter { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-sm); }
@@ -1752,6 +1757,7 @@ button.ts-task:hover .ts-task-title { color: var(--color-primary); text-decorati
   .filter-value { max-width: none; }
   .toolbar .switch { order: 3; }
   #btn-my-tasks { order: 3; }
+  .toolbar .summary-bar { order: 3; }
   #btn-clear-filters { order: 4; }
   .stat-hint { display: none; }
 
