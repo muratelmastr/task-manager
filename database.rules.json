@@ -140,6 +140,53 @@
           }
         }
       }
+    },
+    "timesheets": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      ".indexOn": [
+        "tarih",
+        "gorevId"
+      ],
+      "$id": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && ((!data.exists() && newData.child('kullanici').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val()) || (data.exists() && data.child('kullanici').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val() && data.child('gun').val() >= now / 86400000 - 31 && (!newData.exists() || newData.child('kullanici').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val())))",
+        ".validate": "$id.length <= 64 && newData.hasChildren(['gorevId', 'kullanici', 'tarih', 'gun', 'saat']) && newData.child('gun').val() >= now / 86400000 - 31 && newData.child('gun').val() <= now / 86400000 + 1",
+        "gorevId": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 120"
+        },
+        "kullanici": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 120"
+        },
+        "tarih": {
+          ".validate": "newData.isString() && newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)"
+        },
+        "gun": {
+          ".validate": "newData.isNumber()"
+        },
+        "saat": {
+          ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 24 && (newData.val() * 4) % 1 === 0"
+        },
+        "not": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "gorevNo": {
+          ".validate": "newData.isNumber() && newData.val() >= 1"
+        },
+        "gorevAdi": {
+          ".validate": "newData.isString() && newData.val().length <= 1000"
+        },
+        "alan": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "createdAt": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "updatedAt": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
     }
   }
 }

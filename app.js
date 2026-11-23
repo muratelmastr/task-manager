@@ -14,6 +14,7 @@
   // attachments need the shared database. The legacy no-login mode keeps the old record format.
   const richTasks = !cloudEnabled || !!auth;
   const attachmentsEnabled = !!auth;
+  const timesheetEnabled = !!auth && !!window.TaskTimesheet;
   const MAX_FILE_BYTES = 10 * 1024 * 1024;
   const CHUNK_BYTES = 384 * 1024; // 512 KB once base64-encoded
   const LOGIN_MESSAGE_KEY = 'taskManager.loginMessage';
@@ -451,7 +452,10 @@
   }
 
   const ui = {
-    view: localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list',
+    view: (() => {
+      const v = localStorage.getItem(VIEW_KEY);
+      return v === 'board' || (v === 'timesheet' && timesheetEnabled) ? v : 'list';
+    })(),
     shownCount: 0,
     showCompleted: false,
     search: '',
@@ -554,15 +558,18 @@
   }
 
   function renderView() {
-    const isBoard = ui.view === 'board';
-    $('#list-view').hidden = isBoard;
-    $('#board-view').hidden = !isBoard;
+    const view = ui.view;
+    $('#list-view').hidden = view !== 'list';
+    $('#board-view').hidden = view !== 'board';
+    $('#timesheet-view').hidden = view !== 'timesheet';
+    document.body.classList.toggle('view-timesheet', view === 'timesheet');
     document.querySelectorAll('.view-btn').forEach((btn) => {
       const active = btn.dataset.view === ui.view;
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', String(active));
     });
-    if (isBoard) renderBoard();
+    if (view === 'board') renderBoard();
+    else if (view === 'timesheet') { if (timesheet) timesheet.render(); }
     else renderTable();
   }
 
@@ -938,6 +945,40 @@
 
   let editingTask = null;
   let savingTask = false;
+  let timesheet = null; // Timesheet module (signed-in mode)
+  let taskTimeToken = 0;
+
+  // Task details: total time logged on the task and who logged it.
+  async function loadTaskTime(task) {
+    const field = $('#task-time-field');
+    const token = ++taskTimeToken;
+    field.hidden = !timesheet || !task;
+    if (field.hidden) return;
+    const total = $('#task-time-total');
+    const people = $('#task-time-people');
+    const btn = $('#btn-task-time');
+    btn.disabled = !timesheet.isSelectable(task);
+    btn.title = btn.disabled ? '30 günden önce tamamlanan görevlere zaman girilemez' : 'Bu göreve zaman girişi yap';
+    total.textContent = '…';
+    total.title = '';
+    people.replaceChildren();
+    if (!cloud || !cloud.store) return;
+    try {
+      const entries = await timesheet.taskEntries(task.id);
+      if (token !== taskTimeToken) return;
+      total.textContent = entries.length ? timesheet.formatHours(timesheet.sum(entries)) : 'Henüz giriş yok';
+      const byUser = new Map();
+      for (const e of entries) byUser.set(e.kullanici, (byUser.get(e.kullanici) || 0) + e.saat);
+      people.replaceChildren(...[...byUser].sort((a, b) => b[1] - a[1]).map(([u, h]) => el('li', {},
+        buildAvatar(u, 'avatar-sm'),
+        el('span', { class: 'task-time-name', textContent: displayName(u) }),
+        el('span', { class: 'task-time-hours', textContent: timesheet.formatHours(h) }))));
+    } catch (err) {
+      if (token !== taskTimeToken) return;
+      total.textContent = '—';
+      total.title = `Zaman girişleri yüklenemedi: ${err.message}`;
+    }
+  }
   // Description editor state: the HTML it was loaded with and the server version it is based on.
   const desc = { original: '', updatedAt: null, loaded: false, token: 0 };
 
@@ -973,6 +1014,7 @@
     setTaskSaving(false);
     loadDescription(task);
     loadAttachments(task);
+    loadTaskTime(task);
     $('#task-dialog').showModal();
     form.elements.gorev.focus();
   }
@@ -1654,10 +1696,27 @@
     document.querySelector(`tr[data-id="${CSS.escape(task.id)}"] .gorev-input`)?.focus();
   }
 
-  function deleteTask(task) {
+  async function deleteTask(task) {
     if (task.durum === DONE) {
       alert('Tamamlanan görevler silinemez.');
       return false;
+    }
+    if (timesheet && cloud && cloud.store) {
+      // Tasks with time entries are kept so reports stay complete.
+      let entries;
+      try {
+        entries = await timesheet.taskEntries(task.id);
+      } catch (err) {
+        if (err.code !== 'denied') {
+          alert(`Görevin zaman girişleri kontrol edilemedi, görev silinmedi: ${err.message}`);
+          return false;
+        }
+        entries = [];
+      }
+      if (entries.length) {
+        alert(`Bu göreve toplam ${timesheet.formatHours(timesheet.sum(entries))} zaman girişi yapılmış (${entries.length} giriş). Zaman girişi olan görevler silinemez; bunun yerine durumunu değiştirebilirsiniz.`);
+        return false;
+      }
     }
     const name = task.gorev ? `"${task.gorev}"` : 'Bu (isimsiz)';
     if (!confirm(`${name} görevi silinsin mi?${attachmentsEnabled ? ' Açıklaması ve ekleri de silinir.' : ''} Bu işlem geri alınamaz.`)) return false;
@@ -2019,7 +2078,7 @@
 
   const isEditing = () => {
     const a = document.activeElement;
-    return !!(a && a.closest && ((a.closest('#task-body') && a.matches('input, select, textarea')) || a.closest('dialog, .filter-panel'))) || $('#task-dialog').open || $('#settings-dialog').open;
+    return !!(a && a.closest && ((a.closest('#task-body') && a.matches('input, select, textarea')) || a.closest('dialog, .filter-panel'))) || $('#task-dialog').open || $('#settings-dialog').open || $('#ts-dialog').open;
   };
 
   function renderWhenIdle() {
@@ -2623,9 +2682,29 @@
     setupEditor();
     setupAttachments();
     if (!richTasks) document.body.classList.add('no-task-extras');
-    $('#task-delete').addEventListener('click', () => {
-      if (editingTask && deleteTask(editingTask)) $('#task-dialog').close();
+    $('#task-delete').addEventListener('click', async () => {
+      if (editingTask && await deleteTask(editingTask)) $('#task-dialog').close();
     });
+    $('#btn-task-time').addEventListener('click', () => {
+      if (timesheet && editingTask) timesheet.openEntry({ taskId: editingTask.id });
+    });
+    if (timesheetEnabled) {
+      $('.view-btn[data-view="timesheet"]').hidden = false;
+      timesheet = window.TaskTimesheet.create({
+        $, el, icon, iconButton, toast, uid, buildAvatar, toneFor, DONE, loadSheetJs, download,
+        store: () => (cloud ? cloud.store : null),
+        tasks: () => data.tasks,
+        lists: () => data.lists,
+        directory: () => directory,
+        me: () => myUsername(),
+        fullNameOf: (username) => (username ? displayName(username) : '—'),
+        openTask: (task) => openTaskDialog(task),
+        isVisible: () => ui.view === 'timesheet' && !document.body.classList.contains('auth-locked'),
+        onEntriesChanged: (taskId) => {
+          if ($('#task-dialog').open && editingTask && editingTask.id === taskId) loadTaskTime(editingTask);
+        },
+      });
+    }
 
     $('#search').addEventListener('input', (e) => {
       ui.search = e.target.value;

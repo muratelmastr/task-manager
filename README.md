@@ -6,7 +6,7 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 
 ## Özellikler
 
-- **Liste / Board görünümü:** Sayfanın üstündeki **☰ Liste | ▦ Board** düğmesiyle geçiş yapılır; seçim hatırlanır.
+- **Liste / Board / Timesheet görünümü:** Sayfanın üstündeki **☰ Liste | ▦ Board | 🕒 Timesheet** düğmesiyle geçiş yapılır; seçim hatırlanır (Timesheet yalnızca kullanıcı girişli modda görünür).
   - **Liste:** Excel benzeri satır içi düzenleme; Alan, Görev, Sahip, Durum, Öncelik ve Tamamlanma Tarihi doğrudan tabloda düzenlenir. **No** sütunundaki görev numarasına veya satır sonundaki ↗ düğmesine tıklayınca görev detayı açılır.
   - **Board:** Görevler Durum sütunlarında kart olarak görünür. Kartı başka sütuna **sürükleyerek** durumunu değiştirebilir, karta **tıklayarak** detayını açabilirsiniz. Filtreler, arama ve renklendirme board'da da geçerlidir; gizli tamamlanan görev sayısı "Tamamlandı" sütununda gösterilir.
 - **Parametrik listeler:** Alan, Sahip ve Durum değerleri listeden seçilir; **⚙ Ayarlar** ekranından eklenip yeniden adlandırılabilir, sıralanabilir ve silinebilir (girişli modda Sahip listesi kullanıcı hesaplarından gelir).
@@ -25,6 +25,12 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
   - 🟡 Sarı: Tamamlanma tarihine **1 haftadan az** kaldı
 - **Filtreleme ve sıralama:** Alan/Sahip/Durum filtrelerinde **birden fazla değer** işaretlenebilir (aynı filtrede seçilenlerden herhangi biri, farklı filtreler birlikte uygulanır; hiçbiri seçili değilse "Tümü"). Metin arama ve sütun başlığına tıklayarak sıralama. Board'da Durum filtresi yalnızca seçilen sütunları gösterir.
 - **Kritik / yaklaşan kısayolu:** Filtrelerin altındaki **kritik** (kırmızı) veya **yaklaşan** (sarı) etiketine tıklayınca yalnızca o gruptaki açık görevler gösterilir; diğer filtrelerle birlikte çalışır. Tekrar tıklamak veya "Filtreleri temizle" filtreyi kaldırır.
+- **Timesheet (zaman girişi):** Kullanıcılar bir göreve harcadıkları süreyi girer.
+  - **Giriş:** Görev (aranabilir liste – numara, ad veya alan; kendi görevleriniz üstte; açık görevler ve son 30 günde tamamlananlar), **Süre** (saat; `0,5`, `2`, `1,75` gibi – 0,25 saatlik adımlarla, giriş başına ve kişi başına günde en fazla 24 saat), **Tarih** (varsayılan bugün; en fazla 30 gün geriye, gelecek tarih seçilemez) ve **Not** (en fazla 200 karakter).
+  - **Girişler sekmesi:** Seçili dönemin girişleri günlere göre gruplu, gün ve dönem toplamlarıyla listelenir. Varsayılan olarak **Benim girişlerim** açıktır; kapatınca tüm ekibin girişleri kişi/alan filtreleriyle görülebilir.
+  - **Düzenleme:** Herkes yalnızca **kendi** girişlerini, tarihi son 30 gün içindeyse düzenleyip silebilir.
+  - **Rapor sekmesi:** Dönem (Bu ay – varsayılan, Geçen ay, Bu hafta, Son 30 gün, Özel aralık), kişi ve alan filtreleri; toplam süre/giriş/kişi/görev özeti; **kişi**, **alan** ve **görev** bazında toplam saat ve pay çubuğu; **kişi × alan** çapraz tablosu ve **Excel'e Aktar** (Girişler, Kişi, Alan, Görev, Kişi x Alan sayfaları).
+  - **Görev detayı:** Görevin toplam harcanan süresi ve kişi dağılımı gösterilir; **Zaman gir** ile doğrudan o göreve giriş yapılır. Zaman girişi olan görevler silinemez.
 - **Yedekleme:** **Yedek Al (JSON)** / **Yedekten Yükle** ve **Excel'e Aktar** (.xlsx – "Görevler" ve "Listeler" sayfaları; No ve düz metin Açıklama sütunlarıyla). JSON yedeği açıklamaları içerir; **ekler yedeğe dahil değildir**.
 
 
@@ -52,7 +58,9 @@ Veriler ekibin **Firebase Realtime Database** veritabanında saklanır; giriş *
 - **Benim görevlerim:** Araç çubuğundaki düğme, Sahip filtresini giriş yapan kullanıcıya ayarlar; tekrar tıklayınca kaldırır.
 - Her değişiklik **otomatik olarak** kaydedilir; tüm ekip aynı listeyi görür. Başkalarının değişiklikleri 30 saniyede bir ve sayfaya dönüldüğünde çekilir.
 - Bağlantı koparsa değişiklikler tarayıcıda bekletilir ("Çevrimdışı") ve bağlantı gelince gönderilir. Üst çubukta eşitleme durumu görünür.
-- Veritabanı kuralları (`database.rules.json`) ayrıca şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin veya görev numarasının değiştirilmesi, aynı numaranın iki göreve verilmesi, başkasının yüklediği ekin silinmesi ve hatalı biçimli kayıtlar.
+- Veritabanı kuralları (`database.rules.json`) ayrıca şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin veya görev numarasının değiştirilmesi, aynı numaranın iki göreve verilmesi, başkasının yüklediği ekin silinmesi, başkası adına zaman girişi yapılması, başkasının veya 30 günden eski girişlerin değiştirilmesi, 0,25 adımına uymayan ya da 24 saati aşan süreler ve hatalı biçimli kayıtlar.
+
+> Zaman girişlerinde `gorevNo`, `gorevAdi` ve `alan` görevin o anki kopyasıdır; görev sonradan değişse de rapor okunabilir kalır. Günlük 24 saat toplam sınırı uygulama tarafından denetlenir.
 
 Veri yapısı:
 
@@ -65,6 +73,7 @@ Veri yapısı:
 | `/details/{id}` | `aciklama` (temizlenmiş HTML, en fazla 100.000 karakter), `updatedAt`, `updatedBy` – yalnızca detay açılınca okunur |
 | `/attachments/{id}/{dosyaId}` | `ad, boyut, tur, yukleyen, yuklenmeTarihi, parca` |
 | `/files/{id}/{dosyaId}` | `yukleyen`, `p` – dosyanın 384 KB'lık parçaları (base64) |
+| `/timesheets/{girişId}` | `gorevId, kullanici, tarih (YYYY-MM-DD), gun, saat, not, gorevNo, gorevAdi, alan, createdAt, updatedAt` – `tarih` ve `gorevId` üzerinde indeksli; yalnızca seçili dönem veya görev için sorgulanır |
 
 > Açıklama ve dosyalar görev kaydından ayrı tutulur; liste her 30 saniyede yenilenirken yalnızca küçük görev kayıtları indirilir. Görev kaydındaki `aciklamaVar` / `ekSayisi` alanları kart ve satırdaki simgeler içindir.
 
@@ -125,5 +134,6 @@ Depoyu indirip `index.html` dosyasını tarayıcıda açmanız yeterlidir. Excel
 | `app.js` | Uygulama mantığı (veri, tablo, filtreler, ayarlar, içe/dışa aktarma, bulut eşitleme, giriş akışı) |
 | `auth.js` | Firebase Authentication REST istemcisi (e-posta/şifre girişi, şifre sıfırlama, oturum yenileme) |
 | `cloud.js` | Firebase Realtime Database REST istemcisi (SDK gerekmez) |
+| `timesheet.js` | Timesheet: zaman girişleri, giriş penceresi ve raporlar |
 | `config.js` | Veritabanı adresi (`databaseUrl`) ve Web API anahtarı (`apiKey`) |
 | `database.rules.json` | Firebase konsoluna yapıştırılacak veritabanı kuralları |
