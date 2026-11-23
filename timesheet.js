@@ -350,6 +350,35 @@
         el('span', { class: 'ts-pct', textContent: `%${num.format(Math.round(pct))}` }));
     };
 
+    const COLLAPSE_KEY = 'taskManager.tsCollapsed';
+    const collapsedSet = () => { try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)) || []); } catch (e) { return new Set(); } };
+
+    // Adds an icon-only expand/collapse toggle to a report card's title; the state is remembered per card.
+    function makeCollapsible(section, key, title) {
+      const body = section.querySelector('.ts-table-wrap');
+      body.id = `ts-card-body-${key}`;
+      const btn = el('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm ts-collapse', 'aria-controls': body.id }, icon('chevron-down', 'icon-sm'));
+      const apply = (collapsed) => {
+        body.hidden = collapsed;
+        section.classList.toggle('is-collapsed', collapsed);
+        btn.setAttribute('aria-expanded', String(!collapsed));
+        const label = `${title} bölümünü ${collapsed ? 'genişlet' : 'daralt'}`;
+        btn.setAttribute('aria-label', label);
+        btn.title = collapsed ? 'Genişlet' : 'Daralt';
+      };
+      btn.addEventListener('click', () => {
+        const set = collapsedSet();
+        const collapsed = !set.has(key);
+        if (collapsed) set.add(key); else set.delete(key);
+        localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set]));
+        apply(collapsed);
+      });
+      section.dataset.card = key;
+      section.querySelector('.ts-card-title').append(btn);
+      apply(collapsedSet().has(key));
+      return section;
+    }
+
     function reportTable(title, iconName, headers, rows, total) {
       return el('section', { class: 'ts-card ts-report-card' },
         el('h3', { class: 'ts-card-title' }, icon(iconName, 'icon-sm'), title),
@@ -399,7 +428,8 @@
         reportTable('Alan bazında', 'board', [{ label: 'Alan' }, { label: 'Kişi', cls: 'num' }, { label: 'Süre', cls: 'num' }, { label: 'Pay', cls: 'bar-col' }], alanRows, total));
       const tasks = reportTable('Görev bazında', 'list', [{ label: 'Görev' }, { label: 'Alan' }, { label: 'Kişi', cls: 'num' }, { label: 'Süre', cls: 'num' }, { label: 'Pay', cls: 'bar-col' }], taskRows, total);
       tasks.classList.add('ts-report-wide');
-      return [kpis, grid, tasks, buildMatrix(list, byPerson, byAlan, total), buildDaily(list)];
+      makeCollapsible(tasks, 'tasks', 'Görev bazında');
+      return [kpis, grid, tasks, buildMatrix(list, byPerson, byAlan, total), makeCollapsible(buildDaily(list), 'daily', 'Gün bazında')];
     }
 
     // Day × person hours for the selected period (days up to today; every team member as a column).
