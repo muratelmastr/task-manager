@@ -7,21 +7,25 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 ## Özellikler
 
 - **Liste / Board görünümü:** Sayfanın üstündeki **☰ Liste | ▦ Board** düğmesiyle geçiş yapılır; seçim hatırlanır.
-  - **Liste:** Excel benzeri satır içi düzenleme; Alan, Görev, Sahip, Durum, Öncelik ve Tamamlanma Tarihi doğrudan tabloda düzenlenir.
-  - **Board:** Görevler Durum sütunlarında kart olarak görünür. Kartı başka sütuna **sürükleyerek** durumunu değiştirebilir, karta **tıklayarak** düzenleyebilirsiniz. Filtreler, arama ve renklendirme board'da da geçerlidir; gizli tamamlanan görev sayısı "Tamamlandı" sütununda gösterilir.
+  - **Liste:** Excel benzeri satır içi düzenleme; Alan, Görev, Sahip, Durum, Öncelik ve Tamamlanma Tarihi doğrudan tabloda düzenlenir. **No** sütunundaki görev numarasına veya satır sonundaki ↗ düğmesine tıklayınca görev detayı açılır.
+  - **Board:** Görevler Durum sütunlarında kart olarak görünür. Kartı başka sütuna **sürükleyerek** durumunu değiştirebilir, karta **tıklayarak** detayını açabilirsiniz. Filtreler, arama ve renklendirme board'da da geçerlidir; gizli tamamlanan görev sayısı "Tamamlandı" sütununda gösterilir.
 - **Parametrik listeler:** Alan, Sahip ve Durum değerleri listeden seçilir; **⚙ Ayarlar** ekranından eklenip yeniden adlandırılabilir, sıralanabilir ve silinebilir (girişli modda Sahip listesi kullanıcı hesaplarından gelir).
   - Yeniden adlandırma mevcut görevlere de yansır.
   - Görevlerde kullanılan değerler silinemez.
   - `Tamamlandı` durumu sabittir; değiştirilemez/silinemez.
 - **Öncelik:** Her görevin önceliği **Yüksek / Orta / Düşük** olarak seçilir (sabit liste). Yeni görevler varsayılan olarak **Orta** ile açılır; zorunlu değildir, "Belirtilmemiş" bırakılabilir. Board'da kartın sağ üst köşesinde, listede ayrı bir sütunda gösterilir ve sütun başlığından sıralanabilir.
-- **Oluşturma Tarihi:** Görev oluşturulduğu anda tarih ve saat otomatik kaydedilir; değiştirilemez. Listede ve kart üzerinde gösterilmez, board'da karta tıklayınca açılan görev penceresinde görüntülenir.
+- **Oluşturma Tarihi:** Görev oluşturulduğu anda tarih ve saat otomatik kaydedilir; değiştirilemez. Listede ve kart üzerinde gösterilmez, görev detayında görüntülenir.
+- **Görev numarası:** Her görev kalıcı bir numara alır (`#1, #2…`); mevcut görevler oluşturma tarihine göre numaralanır. Numara kartın sol üstünde, listede **No** sütununda ve detay penceresinin başlığında görünür; aranabilir (`#12`) ve sıralanabilir. Numaralar değişmez, silinen görevin numarası tekrar kullanılmaz ve aynı anda görev açan iki kişi aynı numarayı alamaz.
+- **Görev detayı:** Geniş pencerede solda açıklama ve ekler, sağda alanlar (Alan, Sahip, Durum, Öncelik, tarihler, Oluşturan) yer alır; mobilde tek sütundur.
+- **Açıklama (zengin metin):** Kalın, italik, altı/üstü çizili, başlık, madde/numaralı liste, alıntı, kod bloğu, bağlantı (Ctrl+K) ve biçimi temizle. Word/e-postadan yapıştırılan metin güvenli biçimde temizlenir (yalnızca bu biçimler korunur). Aynı açıklamayı iki kişi aynı anda düzenlerse kaydederken uyarı çıkar. Açıklaması olan görevlerde kart ve satırda ≡ simgesi görünür.
+- **Ekler:** Görev detayında **Dosya ekle** veya sürükle-bırak ile dosya eklenir (dosya başına **en fazla 10 MB**). Tüm kullanıcılar indirebilir; ekleri yalnızca **yükleyen kişi** silebilir. Ek sayısı kart ve satırda 📎 ile gösterilir. Görev silinirse açıklaması ve ekleri de silinir. Ekler kullanıcı girişli ortak veritabanı modunda kullanılabilir.
 - **Tamamlanan görevler silinmez:** Sayfa açıldığında yalnızca `Durum ≠ Tamamlandı` olan görevler görünür. **Tamamlananları göster** seçeneği (veya Durum filtresinde `Tamamlandı`) ile görülebilir. Tamamlanan görevlerin silme butonu kapalıdır; açık görevler onay ile silinebilir.
 - **Tarih uyarıları** (yalnızca tamamlanmamış görevler için):
   - 🔴 Kırmızı: Tamamlanma tarihine **3 günden az** kaldı veya tarih **geçti**
   - 🟡 Sarı: Tamamlanma tarihine **1 haftadan az** kaldı
 - **Filtreleme ve sıralama:** Alan/Sahip/Durum filtrelerinde **birden fazla değer** işaretlenebilir (aynı filtrede seçilenlerden herhangi biri, farklı filtreler birlikte uygulanır; hiçbiri seçili değilse "Tümü"). Metin arama ve sütun başlığına tıklayarak sıralama. Board'da Durum filtresi yalnızca seçilen sütunları gösterir.
 - **Kritik / yaklaşan kısayolu:** Filtrelerin altındaki **kritik** (kırmızı) veya **yaklaşan** (sarı) etiketine tıklayınca yalnızca o gruptaki açık görevler gösterilir; diğer filtrelerle birlikte çalışır. Tekrar tıklamak veya "Filtreleri temizle" filtreyi kaldırır.
-- **Yedekleme:** **Yedek Al (JSON)** / **Yedekten Yükle** ve **Excel'e Aktar** (.xlsx – "Görevler" ve "Listeler" sayfaları).
+- **Yedekleme:** **Yedek Al (JSON)** / **Yedekten Yükle** ve **Excel'e Aktar** (.xlsx – "Görevler" ve "Listeler" sayfaları; No ve düz metin Açıklama sütunlarıyla). JSON yedeği açıklamaları içerir; **ekler yedeğe dahil değildir**.
 
 
 ## Veri saklama
@@ -48,15 +52,23 @@ Veriler ekibin **Firebase Realtime Database** veritabanında saklanır; giriş *
 - **Benim görevlerim:** Araç çubuğundaki düğme, Sahip filtresini giriş yapan kullanıcıya ayarlar; tekrar tıklayınca kaldırır.
 - Her değişiklik **otomatik olarak** kaydedilir; tüm ekip aynı listeyi görür. Başkalarının değişiklikleri 30 saniyede bir ve sayfaya dönüldüğünde çekilir.
 - Bağlantı koparsa değişiklikler tarayıcıda bekletilir ("Çevrimdışı") ve bağlantı gelince gönderilir. Üst çubukta eşitleme durumu görünür.
-- Veritabanı kuralları (`database.rules.json`) ayrıca şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin değiştirilmesi ve hatalı biçimli kayıtlar.
+- Veritabanı kuralları (`database.rules.json`) ayrıca şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin veya görev numarasının değiştirilmesi, aynı numaranın iki göreve verilmesi, başkasının yüklediği ekin silinmesi ve hatalı biçimli kayıtlar.
 
 Veri yapısı:
 
 | Yol | İçerik |
 |---|---|
-| `/tasks/{id}` | `id, gorev, alan, sahip, durum, oncelik, tamamlanmaTarihi (YYYY-MM-DD), completedAt, createdAt, updatedAt, createdBy` |
+| `/tasks/{id}` | `id, gorev, alan, sahip, durum, oncelik, tamamlanmaTarihi (YYYY-MM-DD), completedAt, createdAt, updatedAt, createdBy, no, aciklamaVar, ekSayisi` |
 | `/lists/{alan\|sahip\|durum}` | Değerler, her satırda bir değer olacak şekilde metin |
 | `/users/{e-posta anahtarı}` | `ad, soyad, kullaniciAdi, email, sira` – yalnızca Firebase konsolundan düzenlenir |
+| `/taskNumbers/{no}` | Numarayı alan görevin anahtarı. Yalnızca bir kez yazılabilir; numaraların benzersiz olmasını sağlar. |
+| `/details/{id}` | `aciklama` (temizlenmiş HTML, en fazla 100.000 karakter), `updatedAt`, `updatedBy` – yalnızca detay açılınca okunur |
+| `/attachments/{id}/{dosyaId}` | `ad, boyut, tur, yukleyen, yuklenmeTarihi, parca` |
+| `/files/{id}/{dosyaId}` | `yukleyen`, `p` – dosyanın 384 KB'lık parçaları (base64) |
+
+> Açıklama ve dosyalar görev kaydından ayrı tutulur; liste her 30 saniyede yenilenirken yalnızca küçük görev kayıtları indirilir. Görev kaydındaki `aciklamaVar` / `ekSayisi` alanları kart ve satırdaki simgeler içindir.
+
+> **Kota:** Ücretsiz planda veritabanı toplam 1 GB'tır; base64 nedeniyle dosyalar yaklaşık 1,33 kat yer kaplar (≈ 750 MB dosya). Kullanımı Firebase konsolunda **Realtime Database → Usage** ekranından izleyebilirsiniz.
 
 > `oncelik` alanı yalnızca **Orta** dışındaki değerler için yazılır (`Yüksek`, `Düşük` veya boş = belirtilmemiş); alan yoksa öncelik **Orta** kabul edilir. `createdBy` giriş özelliğinden önce oluşturulan görevlerde yoktur.
 
