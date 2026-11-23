@@ -5,6 +5,7 @@
   const CLOUD_CACHE_KEY = 'taskManager.cloud.v2';
   const MIGRATED_KEY = 'taskManager.v1.migratedAt';
   const VIEW_KEY = 'taskManager.view';
+  const TS_TAB_KEY = 'taskManager.tsTab';
   const POLL_MS = 30000;
   const config = window.TASK_MANAGER_CONFIG || {};
   const cloudEnabled = !!(config.databaseUrl && window.TaskCloud);
@@ -563,11 +564,7 @@
     $('#board-view').hidden = view !== 'board';
     $('#timesheet-view').hidden = view !== 'timesheet';
     document.body.classList.toggle('view-timesheet', view === 'timesheet');
-    document.querySelectorAll('.view-btn').forEach((btn) => {
-      const active = btn.dataset.view === ui.view;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-pressed', String(active));
-    });
+    renderNav();
     if (view === 'board') renderBoard();
     else if (view === 'timesheet') { if (timesheet) timesheet.render(); }
     else renderTable();
@@ -2433,6 +2430,7 @@
     setTone(avatar, toneFor('sahip', currentUser ? currentUser.kullaniciAdi : auth.email));
     avatar.textContent = initials(name);
     $('#user-name').textContent = name;
+    $('#user-email').textContent = auth.email;
     $('#user-menu-name').textContent = name;
     $('#user-menu-email').textContent = auth.email;
     $('#btn-user-menu').title = `${name} (${auth.email})`;
@@ -2651,19 +2649,111 @@
     const onScroll = () => header.classList.toggle('is-scrolled', window.scrollY > 4);
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
-    // Sticky table headers sit right below the (wrapping) app header.
+    // Sticky table headers sit right below the page header.
     const setHeight = () => document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`);
     if (window.ResizeObserver) new ResizeObserver(setHeight).observe(header);
     setHeight();
   }
+
+  // ---------- Sidebar ----------
+
+  const SIDEBAR_KEY = 'taskManager.sidebar';
+  const drawerQuery = window.matchMedia('(max-width: 768px)');
+  const isDrawer = () => drawerQuery.matches;
+
+  function setSidebarCollapsed(collapsed, remember = true) {
+    document.body.classList.toggle('sidebar-collapsed', collapsed);
+    const btn = $('#btn-sidebar-collapse');
+    btn.setAttribute('aria-expanded', String(!collapsed));
+    const label = collapsed ? 'Menüyü genişlet' : 'Menüyü daralt';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    if (remember) localStorage.setItem(SIDEBAR_KEY, collapsed ? 'collapsed' : 'expanded');
+  }
+
+  function openDrawer() {
+    document.body.classList.add('sidebar-open');
+    $('#sidebar-backdrop').hidden = false;
+    $('#btn-nav').setAttribute('aria-expanded', 'true');
+    ($('#sidebar .nav-item.active') || $('#sidebar .nav-item')).focus();
+  }
+
+  function closeDrawer(returnFocus = false) {
+    if (!document.body.classList.contains('sidebar-open')) return;
+    document.body.classList.remove('sidebar-open');
+    $('#sidebar-backdrop').hidden = true;
+    $('#btn-nav').setAttribute('aria-expanded', 'false');
+    if (returnFocus) $('#btn-nav').focus();
+  }
+
+  function setupSidebar() {
+    const stored = localStorage.getItem(SIDEBAR_KEY);
+    // Without a saved choice, laptop-sized screens start with the compact rail so the table fits.
+    setSidebarCollapsed(stored ? stored === 'collapsed' : window.innerWidth < 1400, false);
+    $('#btn-sidebar-collapse').addEventListener('click', () => setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed')));
+    $('#btn-nav').addEventListener('click', openDrawer);
+    $('#btn-sidebar-close').addEventListener('click', () => closeDrawer(true));
+    $('#sidebar-backdrop').addEventListener('click', () => closeDrawer(true));
+    const sidebar = $('#sidebar');
+    sidebar.addEventListener('keydown', (e) => {
+      if (!isDrawer() || !document.body.classList.contains('sidebar-open')) return;
+      if (e.key === 'Escape' && !sidebar.querySelector('.menu-list:not([hidden])')) {
+        e.preventDefault();
+        closeDrawer(true);
+      } else if (e.key === 'Tab') {
+        // Keep focus inside the open drawer.
+        const items = [...sidebar.querySelectorAll('button:not([disabled])')].filter((b) => b.offsetParent !== null);
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+    // Choosing a page, a menu action or Ayarlar closes the drawer.
+    sidebar.addEventListener('click', (e) => {
+      if (isDrawer() && e.target.closest('.view-btn, .menu-item, #btn-settings')) closeDrawer();
+    });
+    drawerQuery.addEventListener('change', () => closeDrawer());
+  }
+
+  const PAGE_TITLES = {
+    list: ['Görevler', 'Liste'],
+    board: ['Görevler', 'Board'],
+    'timesheet:entries': ['Timesheet', 'Girişler'],
+    'timesheet:report': ['Timesheet', 'Rapor'],
+  };
+
+  function renderNav() {
+    const tab = timesheet ? timesheet.tab() : 'entries';
+    const key = ui.view === 'timesheet' ? `timesheet:${tab}` : ui.view;
+    document.querySelectorAll('.view-btn').forEach((btn) => {
+      const active = btn.dataset.view === ui.view && (!btn.dataset.tab || btn.dataset.tab === tab);
+      btn.classList.toggle('active', active);
+      if (active) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
+    });
+    const [section, title] = PAGE_TITLES[key];
+    $('#page-section').textContent = section;
+    $('#page-section').lang = section === 'Timesheet' ? 'en' : '';
+    $('#page-title').textContent = title;
+    document.title = `${title} · ${section} – Ekip Görev Takibi`;
+    $('#btn-add').hidden = ui.view === 'timesheet';
+    $('#ts-add').hidden = ui.view !== 'timesheet';
+  }
+
   function bindEvents() {
     $('#btn-add').addEventListener('click', addTask);
+    setupSidebar();
 
     document.querySelectorAll('.view-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        if (ui.view === btn.dataset.view) return;
+        const tab = btn.dataset.tab;
+        if (ui.view === btn.dataset.view && (!tab || !timesheet || timesheet.tab() === tab)) return;
         ui.view = btn.dataset.view;
         localStorage.setItem(VIEW_KEY, ui.view);
+        if (tab && timesheet) {
+          timesheet.setTab(tab);
+          localStorage.setItem(TS_TAB_KEY, tab);
+        }
         resetPinned();
         renderView();
         renderSummary();
@@ -2689,7 +2779,7 @@
       if (timesheet && editingTask) timesheet.openEntry({ taskId: editingTask.id });
     });
     if (timesheetEnabled) {
-      $('.view-btn[data-view="timesheet"]').hidden = false;
+      $('#nav-group-timesheet').hidden = false;
       timesheet = window.TaskTimesheet.create({
         $, el, icon, iconButton, toast, uid, buildAvatar, toneFor, DONE, loadSheetJs, download,
         store: () => (cloud ? cloud.store : null),
@@ -2704,6 +2794,7 @@
           if ($('#task-dialog').open && editingTask && editingTask.id === taskId) loadTaskTime(editingTask);
         },
       });
+      timesheet.setTab(localStorage.getItem(TS_TAB_KEY));
     }
 
     $('#search').addEventListener('input', (e) => {
