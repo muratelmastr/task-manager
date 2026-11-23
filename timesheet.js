@@ -26,6 +26,8 @@
   const formatHours = (h) => `${num.format(Math.round(h * 100) / 100)} sa`;
   const dayFmt = new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const dateFmt = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const weekdayFmt = new Intl.DateTimeFormat('tr-TR', { weekday: 'short' });
+  const shortDay = (iso) => { const d = parseIso(iso); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${weekdayFmt.format(d)}`; };
 
   // "0,5", "0.5", "2", "1,75" → number, or { error }.
   function parseHours(raw) {
@@ -397,7 +399,62 @@
         reportTable('Alan bazında', 'board', [{ label: 'Alan' }, { label: 'Kişi', cls: 'num' }, { label: 'Süre', cls: 'num' }, { label: 'Pay', cls: 'bar-col' }], alanRows, total));
       const tasks = reportTable('Görev bazında', 'list', [{ label: 'Görev' }, { label: 'Alan' }, { label: 'Kişi', cls: 'num' }, { label: 'Süre', cls: 'num' }, { label: 'Pay', cls: 'bar-col' }], taskRows, total);
       tasks.classList.add('ts-report-wide');
-      return [kpis, grid, tasks, buildMatrix(list, byPerson, byAlan, total)];
+      return [kpis, grid, tasks, buildMatrix(list, byPerson, byAlan, total), buildDaily(list)];
+    }
+
+    // Day × person hours for the selected period (days up to today; every team member as a column).
+    function dailyData(list) {
+      const [from, to] = range();
+      const today = todayIso();
+      const last = to < today ? to : today;
+      const days = [];
+      for (let d = from; d <= last && days.length < 400; d = addDays(d, 1)) days.push(d);
+      let people = (app.directory() || []).map((u) => u.kullaniciAdi);
+      for (const e of list) if (e.kullanici && !people.includes(e.kullanici)) people.push(e.kullanici);
+      if (S.kisi) people = [S.kisi];
+      const cells = new Map();
+      const dayTotals = new Map();
+      const personTotals = new Map();
+      for (const e of list) {
+        const k = `${e.tarih}\u0000${e.kullanici}`;
+        cells.set(k, (cells.get(k) || 0) + e.saat);
+        dayTotals.set(e.tarih, (dayTotals.get(e.tarih) || 0) + e.saat);
+        personTotals.set(e.kullanici, (personTotals.get(e.kullanici) || 0) + e.saat);
+      }
+      return {
+        days,
+        people,
+        cell: (day, user) => cells.get(`${day}\u0000${user}`) || 0,
+        dayTotal: (day) => dayTotals.get(day) || 0,
+        personTotal: (user) => personTotals.get(user) || 0,
+        total: sum(list),
+      };
+    }
+
+    const isWeekend = (iso) => { const w = parseIso(iso).getDay(); return w === 0 || w === 6; };
+
+    function buildDaily(list) {
+      const D = dailyData(list);
+      const today = todayIso();
+      const hoursCell = (h, cls = '') => el('td', { class: `num${h ? '' : ' is-zero'}${cls}`, textContent: h ? num.format(h) : '–' });
+      const head = el('tr', {}, el('th', { textContent: 'Tarih' }),
+        ...D.people.map((u) => el('th', { class: 'num', title: app.fullNameOf(u), dataset: { user: u } },
+          el('span', { class: 'ts-daily-who' }, app.buildAvatar(u, 'avatar-sm'), el('span', { textContent: u })))),
+        el('th', { class: 'num', textContent: 'Toplam' }));
+      const rows = D.days.map((day) => el('tr', {
+        class: [isWeekend(day) ? 'is-weekend' : '', day === today ? 'is-today' : ''].filter(Boolean).join(' '),
+        dataset: { date: day },
+      },
+        el('th', { scope: 'row', title: dayFmt.format(parseIso(day)), textContent: shortDay(day) }),
+        ...D.people.map((u) => hoursCell(D.cell(day, u))),
+        hoursCell(D.dayTotal(day), ' strong')));
+      const foot = el('tr', {}, el('th', { scope: 'row', textContent: 'Toplam' }),
+        ...D.people.map((u) => el('td', { class: 'num strong', textContent: num.format(D.personTotal(u)) })),
+        el('td', { class: 'num strong', textContent: num.format(D.total) }));
+      return el('section', { class: 'ts-card ts-report-card ts-report-wide ts-daily-card' },
+        el('h3', { class: 'ts-card-title' }, icon('calendar', 'icon-sm'), 'Gün bazında (saat)'),
+        el('div', { class: 'ts-table-wrap ts-daily-wrap' },
+          el('table', { class: 'ts-table ts-matrix ts-daily' }, el('thead', {}, head), el('tbody', {}, ...rows), el('tfoot', {}, foot))));
     }
 
     function buildMatrix(list, byPerson, byAlan, total) {
@@ -459,6 +516,10 @@
       add('Kişi x Alan', [['Kişi', ...byAlan.map((a) => a.key || '(Alan yok)'), 'Toplam'],
         ...byPerson.map((p) => [app.fullNameOf(p.key), ...byAlan.map((a) => cell.get(`${p.key}\u0000${a.key}`) || 0), p.hours]),
         ['Toplam', ...byAlan.map((a) => a.hours), total]], [22, ...byAlan.map(() => 14), 10]);
+      const D = dailyData(list);
+      add('Gün', [['Tarih', ...D.people.map((u) => app.fullNameOf(u)), 'Toplam'],
+        ...D.days.map((day) => [day, ...D.people.map((u) => D.cell(day, u)), D.dayTotal(day)]),
+        ['Toplam', ...D.people.map((u) => D.personTotal(u)), D.total]], [12, ...D.people.map(() => 16), 10]);
       XLSX.writeFile(wb, `timesheet-${from}_${to}.xlsx`);
     }
 
