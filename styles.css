@@ -1636,6 +1636,16 @@ button.ts-task:hover .ts-task-title { color: var(--color-primary); text-decorati
 .ts-pct { flex: none; min-width: 36px; font-size: var(--font-xs); font-variant-numeric: tabular-nums; color: var(--color-text-muted); text-align: right; }
 .ts-matrix th[scope="row"] { font-weight: 500; }
 .ts-matrix td.is-zero { color: var(--color-text-placeholder); }
+.ts-daily-wrap { max-height: 640px; overflow: auto; }
+.ts-daily th, .ts-daily td { padding: 6px var(--space-3); }
+.ts-daily thead th { position: sticky; top: 0; z-index: 2; }
+.ts-daily tfoot td, .ts-daily tfoot th { position: sticky; bottom: 0; z-index: 2; }
+.ts-daily th:first-child { position: sticky; left: 0; z-index: 1; background: var(--color-surface); }
+.ts-daily thead th:first-child, .ts-daily tfoot th:first-child { z-index: 3; background: var(--color-surface-muted); }
+.ts-daily-who { display: inline-flex; align-items: center; gap: 6px; }
+.ts-daily tbody tr.is-weekend th, .ts-daily tbody tr.is-weekend td { color: var(--color-text-muted); background: var(--color-surface-muted); }
+.ts-daily tbody tr.is-today th, .ts-daily tbody tr.is-today td { background: var(--color-primary-soft); }
+.ts-daily tbody tr.is-today th { color: var(--color-primary-hover); font-weight: 700; }
 
 /* Entry dialog */
 .combo { position: relative; }
