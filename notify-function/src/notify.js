@@ -3,7 +3,8 @@
 // Görev atama maili: uygulama, bir görevin Sahip'ini değiştiren kullanıcının Firebase ID token'ıyla
 // bu fonksiyonu çağırır. Token doğrulanır, görev ve kullanıcılar çağıranın yetkisiyle okunur
 // (veritabanı kuralları geçerlidir) ve mail gönderilir. Aynı atama için ikinci mail gitmez.
-// Gönderim: ACS_CONNECTION_STRING varsa Azure Communication Services Email, yoksa Resend.
+// Gönderim: ACS_CONNECTION_STRING varsa Azure Communication Services, SMTP_USER/SMTP_PASS varsa
+// SMTP (ör. Gmail uygulama şifresi), ikisi de yoksa Resend.
 
 const crypto = require('crypto');
 
@@ -36,11 +37,18 @@ function parseAcs(conn) {
 
 function settings(env) {
   const acs = env.ACS_CONNECTION_STRING ? parseAcs(env.ACS_CONNECTION_STRING) : null;
-  const need = ['FIREBASE_API_KEY', 'FIREBASE_DB_URL', 'APP_URL', 'MAIL_FROM', ...(acs ? [] : ['RESEND_API_KEY'])];
+  const smtp = !acs && env.SMTP_USER && env.SMTP_PASS ? {
+    host: env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(env.SMTP_PORT) || 465,
+    user: env.SMTP_USER.trim(),
+    pass: env.SMTP_PASS.replace(/\s+/g, ''), // Gmail shows app passwords in groups of four
+  } : null;
+  const need = ['FIREBASE_API_KEY', 'FIREBASE_DB_URL', 'APP_URL', 'MAIL_FROM', ...(acs || smtp ? [] : ['RESEND_API_KEY'])];
   const missing = need.filter((k) => !env[k]);
   if (missing.length) throw new HttpError(500, `Eksik ayar: ${missing.join(', ')}`);
   return {
     acs,
+    smtp,
     resendKey: env.RESEND_API_KEY,
     apiKey: env.FIREBASE_API_KEY,
     db: env.FIREBASE_DB_URL.replace(/\/+$/, ''),
@@ -118,7 +126,7 @@ ${note}<p style="margin:0 0 8px;font-size:15px">Merhaba ${esc(owner.ad || fullNa
 }
 
 // Returns { status, body } for the HTTP response.
-async function handleNotify({ authorization, body, env, fetchFn = fetch, log = console }) {
+async function handleNotify({ authorization, body, env, fetchFn = fetch, log = console, createTransport = defaultTransport }) {
   try {
     const cfg = settings(env);
     const idToken = /^Bearer\s+(\S+)$/i.exec(authorization || '');
@@ -153,7 +161,7 @@ async function handleNotify({ authorization, body, env, fetchFn = fetch, log = c
     const redirected = !!cfg.redirectTo;
     const link = task.no ? `${cfg.appUrl}?gorev=${task.no}` : cfg.appUrl;
     const mail = buildMail({ task, owner, caller, link, redirected });
-    const id = await sendMail(cfg, fetchFn, log, {
+    const id = await sendMail(cfg, fetchFn, log, createTransport, {
       to: redirected ? cfg.redirectTo : owner.email,
       toName: redirected ? '' : fullName(owner),
       replyTo: caller.email,
@@ -198,7 +206,40 @@ function acsHeaders(acs, method, url, body) {
 
 const addressOf = (from) => { const m = /<([^>]+)>/.exec(from); return (m ? m[1] : from).trim(); };
 
-async function sendMail(cfg, fetchFn, log, m) {
+// SMTP transport, reused across calls on a warm instance.
+let cachedTransport = null;
+function defaultTransport(smtp) {
+  const key = `${smtp.host}:${smtp.port}:${smtp.user}:${smtp.pass}`;
+  if (!cachedTransport || cachedTransport.key !== key) {
+    const nodemailer = require('nodemailer');
+    cachedTransport = {
+      key,
+      transport: nodemailer.createTransport({ host: smtp.host, port: smtp.port, secure: smtp.port === 465, auth: { user: smtp.user, pass: smtp.pass } }),
+    };
+  }
+  return cachedTransport.transport;
+}
+
+async function sendMail(cfg, fetchFn, log, createTransport, m) {
+  if (cfg.smtp) {
+    try {
+      const info = await createTransport(cfg.smtp).sendMail({
+        from: cfg.from,
+        to: m.toName ? { name: m.toName, address: m.to } : m.to,
+        replyTo: { name: m.replyToName, address: m.replyTo },
+        subject: m.subject,
+        html: m.html,
+        text: m.text,
+        messageId: `<${uuidFrom(m.idempotencyKey)}@gorev-takibi>`,
+      });
+      return (info && info.messageId) || null;
+    } catch (err) {
+      if (log.warn) log.warn('SMTP error', err.code, err.responseCode, err.message);
+      // 4xx replies and connection problems are temporary – the app retries later.
+      const temporary = (err.responseCode >= 400 && err.responseCode < 500) || ['ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'EDNS'].includes(err.code);
+      throw new HttpError(temporary ? 503 : 502, `Mail gönderilemedi: ${err.response || err.message}`);
+    }
+  }
   if (cfg.acs) {
     const url = `${cfg.acs.endpoint}/emails:send?api-version=${ACS_API_VERSION}`;
     const body = JSON.stringify({

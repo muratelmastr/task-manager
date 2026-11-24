@@ -132,13 +132,14 @@ GitHub Pages yalnızca statik dosya sunar ve depo herkese açıktır; mail servi
 3. Yalnızca `https://muratelmastr.github.io` adresinden gelen istekler kabul edilir (CORS); geçersiz oturumlar 401 alır.
 4. Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama 1, 5, 10 ve 15'er dakika arayla (toplam yaklaşık 1,5 saat) yeniden dener.
 
-Mail iki servisten biriyle gönderilir: `ACS_CONNECTION_STRING` ayarı varsa **Azure Communication Services**, yoksa **Resend**.
+Mail üç servisten biriyle gönderilir: `ACS_CONNECTION_STRING` ayarı varsa **Azure Communication Services**, yoksa `SMTP_USER`/`SMTP_PASS` varsa **SMTP (Gmail)**, ikisi de yoksa **Resend**.
 
-| | Azure Communication Services (hedef) | Resend (şu an) |
-|---|---|---|
-| Domain | Gerekmez – Azure'un ücretsiz yönetilen domaini (`DoNotReply@….azurecomm.net`) | Doğrulanmış domain gerekir; yoksa yalnızca Resend hesabının sahibine gider |
-| Alıcı | Herkes | Domain olmadan yalnızca hesap sahibi (`MAIL_REDIRECT_TO`) |
-| Sınır | Dakikada 5, saatte 10 mail (abonelik başına) | Günde 100 mail (ücretsiz plan) |
+| | Gmail SMTP (şu an) | Azure Communication Services | Resend |
+|---|---|---|---|
+| Domain | Gerekmez – `mrtlms@gmail.com` adresinden gider | Gerekmez – Azure'un ücretsiz yönetilen domaini (`DoNotReply@….azurecomm.net`) | Doğrulanmış domain gerekir; yoksa yalnızca Resend hesabının sahibine gider |
+| Alıcı | Herkes | Herkes | Domain olmadan yalnızca hesap sahibi (`MAIL_REDIRECT_TO`) |
+| Sınır | Günde 500 mail | Dakikada 5, saatte 10 mail (abonelik başına) | Günde 100 mail (ücretsiz plan) |
+| Önkoşul | Gmail'de 2 adımlı doğrulama + uygulama şifresi | Abonelikte `Microsoft.Communication` kaydı (abonelik yöneticisi) | Domain doğrulama (DNS) |
 
 Mevcut kurulum:
 
@@ -147,24 +148,29 @@ Mevcut kurulum:
 | Kaynak grubu | `rg-MURAT` (abonelik: 14K Azure Subscription 2026 -LG) |
 | Function App | `task-manager-notify-wf3n2h` (Flex Consumption, Node 24, West Europe) – depolama hesabı `taskmgrnotifywf3n2h` |
 | Uç nokta | `https://task-manager-notify-wf3n2h.azurewebsites.net/api/assignment-notify` |
+| Gönderim | Gmail SMTP, gönderen `Ekip Görev Takibi <mrtlms@gmail.com>`; yanıtlar görevi atayan kişiye gider |
 
 Function App ayarları (**Ortam değişkenleri**):
 
 | Ayar | Değer |
 |---|---|
-| `ACS_CONNECTION_STRING` | Azure Communication Services bağlantı dizesi. Doluysa mailler ACS ile gider. **Depoya yazılmaz.** |
-| `RESEND_API_KEY` | Resend API anahtarı (yalnızca gönderme yetkili; ACS yoksa kullanılır). **Depoya yazılmaz.** |
+| `SMTP_USER` / `SMTP_PASS` | Gmail adresi ve **uygulama şifresi** (boşluklar önemsizdir). Doluysa mailler SMTP ile gider. **Şifre depoya yazılmaz.** |
+| `SMTP_HOST` / `SMTP_PORT` | *(isteğe bağlı)* Varsayılan `smtp.gmail.com` / `465` |
+| `ACS_CONNECTION_STRING` | *(isteğe bağlı)* Azure Communication Services bağlantı dizesi. Doluysa SMTP yerine ACS kullanılır. **Depoya yazılmaz.** |
+| `RESEND_API_KEY` | Resend API anahtarı (yalnızca gönderme yetkili; ACS ve SMTP yoksa kullanılır). **Depoya yazılmaz.** |
 | `FIREBASE_API_KEY` | `config.js` içindeki `apiKey` |
 | `FIREBASE_DB_URL` | `config.js` içindeki `databaseUrl` |
 | `APP_URL` | `https://muratelmastr.github.io/task-manager/` ("Görevi aç" bağlantısı) |
-| `MAIL_FROM` | Gönderen. ACS: `DoNotReply@….azurecomm.net`; Resend: `Ekip Görev Takibi <onboarding@resend.dev>` |
+| `MAIL_FROM` | Gönderen. Gmail: `Ekip Görev Takibi <mrtlms@gmail.com>` (adres SMTP hesabıyla aynı olmalı); ACS: `DoNotReply@….azurecomm.net`; Resend: `Ekip Görev Takibi <onboarding@resend.dev>` |
 | `MAIL_REDIRECT_TO` | *(isteğe bağlı)* Doluysa tüm mailler bu adrese gider ve konuda asıl alıcı yazar (test modu) |
 
-> **Şu an test modundadır (Resend):** Tüm atama mailleri `MAIL_REDIRECT_TO` adresine gider. Görev sahiplerine göndermek için **Azure Communication Services**'e geçilir (domain gerekmez):
-> 1. Abonelik yöneticisi bir kez `Microsoft.Communication` kaynak sağlayıcısını kaydeder: Azure portalı → **Subscriptions → 14K Azure Subscription 2026 -LG → Resource providers → Microsoft.Communication → Register** (veya `az provider register -n Microsoft.Communication`). Bu, `rg-MURAT` üzerindeki Owner yetkisiyle yapılamaz.
-> 2. `notify-function` klasöründe `.\setup-acs.ps1` çalıştırılır. Betik e-posta servisini, Azure yönetilen domaini ve Communication Services kaynağını `rg-MURAT` içinde oluşturur; bağlantı dizesini ve gönderen adresini Function App'e yazar ve test yönlendirmesini kaldırır.
->
-> İleride kendi domaininiz olursa Resend'e (veya ACS'te özel domaine) geçilebilir: Resend'de domaini doğrulayın, `MAIL_FROM` ayarını o domainden bir adresle değiştirin ve `ACS_CONNECTION_STRING` ile `MAIL_REDIRECT_TO` ayarlarını silin.
+Gmail uygulama şifresini değiştirmek (https://myaccount.google.com/apppasswords adresinde yenisini oluşturup eskisini silin):
+
+```powershell
+az functionapp config appsettings set -g rg-MURAT -n task-manager-notify-wf3n2h --settings SMTP_PASS=<yeni uygulama şifresi>
+```
+
+> **Diğer servislere geçiş:** Abonelikte `Microsoft.Communication` kaydedilirse `notify-function` klasöründe `.\setup-acs.ps1` çalıştırılarak ACS'e geçilebilir (betik kaynakları `rg-MURAT` içinde oluşturur ve ayarları yazar). Kendi domaininiz olursa Resend'de doğrulayıp `MAIL_FROM` ayarını o domainden bir adresle değiştirin ve `SMTP_USER`, `SMTP_PASS`, `ACS_CONNECTION_STRING` ayarlarını silin.
 
 Resend anahtarını değiştirmek (yenisini oluşturup eskisini Resend'de silin):
 
@@ -180,7 +186,7 @@ tar -a -c -f ..\notify.zip host.json package.json src node_modules
 az functionapp deployment source config-zip -g rg-MURAT -n task-manager-notify-wf3n2h --src ..\notify.zip
 ```
 
-> `notifyUrl` boş bırakılırsa uygulama mail göndermeye çalışmaz. `/assignmentMails` kuralı yayımlanmadan da mail gider; yalnızca "aynı atamaya ikinci mail gitmesin" kaydı tutulamaz. Maliyet: bu hacimde Azure Functions, ACS (mail başına yaklaşık 0,00025 $) ve Resend fiilen ücretsizdir.
+> `notifyUrl` boş bırakılırsa uygulama mail göndermeye çalışmaz. `/assignmentMails` kuralı yayımlanmadan da mail gider; yalnızca "aynı atamaya ikinci mail gitmesin" kaydı tutulamaz. Maliyet: bu hacimde Azure Functions, Gmail, ACS (mail başına yaklaşık 0,00025 $) ve Resend fiilen ücretsizdir.
 
 ## Yerel kullanım
 
@@ -198,4 +204,4 @@ Depoyu indirip `index.html` dosyasını tarayıcıda açmanız yeterlidir. Excel
 | `timesheet.js` | Timesheet: zaman girişleri, giriş penceresi ve raporlar |
 | `config.js` | Veritabanı adresi (`databaseUrl`), Web API anahtarı (`apiKey`) ve atama maili fonksiyonunun adresi (`notifyUrl`) |
 | `database.rules.json` | Firebase konsoluna yapıştırılacak veritabanı kuralları |
-| `notify-function/` | Atama maillerini gönderen Azure Function (Node.js; Azure Communication Services veya Resend) ve ACS kurulum betiği `setup-acs.ps1` |
+| `notify-function/` | Atama maillerini gönderen Azure Function (Node.js; Gmail SMTP, Azure Communication Services veya Resend) ve ACS kurulum betiği `setup-acs.ps1` |
