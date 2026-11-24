@@ -141,6 +141,22 @@
         }
       }
     },
+    "assignmentMails": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+        ".validate": "$key.length <= 120 && newData.hasChildren(['sahip', 'at'])",
+        "sahip": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 200"
+        },
+        "at": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
     "timesheets": {
       ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
       ".indexOn": [

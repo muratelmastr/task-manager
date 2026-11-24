@@ -1,0 +1,13 @@
+{
+  "name": "task-manager-notify",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ekip Görev Takibi – görev atama maili (Azure Functions + Resend)",
+  "main": "src/functions/*.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0"
+  }
+}
