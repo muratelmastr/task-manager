@@ -10,6 +10,7 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
   - **Liste:** Excel benzeri satır içi düzenleme; Alan, Görev, Sahip, Durum, Öncelik ve Tamamlanma Tarihi doğrudan tabloda düzenlenir. **No** sütunundaki görev numarasına veya satır sonundaki ↗ düğmesine tıklayınca görev detayı açılır.
   - **Board:** Görevler Durum sütunlarında kart olarak görünür. Kartı başka sütuna **sürükleyerek** durumunu değiştirebilir, karta **tıklayarak** detayını açabilirsiniz. Filtreler (Durum hariç), arama ve renklendirme board'da da geçerlidir; gizli tamamlanan görev sayısı "Tamamlandı" sütununda gösterilir.
 - **Parametrik listeler:** Alan, Sahip ve Durum değerleri listeden seçilir; **⚙ Ayarlar** ekranından eklenip yeniden adlandırılabilir, sıralanabilir ve silinebilir (girişli modda Sahip listesi kullanıcı hesaplarından gelir).
+- **Yeni görev:** **Yeni Görev** düğmesi (Liste ve Board'da) görev penceresini açar. **Görev** başlığı ve **Alan** zorunludur; Alan seçilmeden görev oluşturulamaz. Alan/Sahip filtresinde seçili ilk değer pencerede hazır gelir. (Alanı boş olan eski görevler düzenlenip kaydedilebilir.)
   - Yeniden adlandırma mevcut görevlere de yansır.
   - Görevlerde kullanılan değerler silinemez.
   - `Tamamlandı` durumu sabittir; değiştirilemez/silinemez.

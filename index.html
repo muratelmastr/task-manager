@@ -316,7 +316,7 @@
             </section>
           </div>
           <aside class="task-side" aria-label="Görev alanları">
-            <label class="field"><span class="field-label">Alan</span><select name="alan" class="select"></select></label>
+            <label class="field" id="task-alan-field"><span class="field-label">Alan <span class="required" id="alan-required" aria-hidden="true" hidden>*</span></span><select name="alan" class="select" aria-describedby="alan-error"></select><span id="alan-error" class="field-error" hidden><svg class="icon icon-sm" aria-hidden="true"><use href="#i-alert"/></svg>Alan seçilmeden görev oluşturulamaz.</span></label>
             <label class="field"><span class="field-label">Sahip</span><select name="sahip" class="select"></select></label>
             <label class="field"><span class="field-label">Durum</span><select name="durum" class="select"></select></label>
             <label class="field"><span class="field-label">Öncelik</span><select name="oncelik" class="select"></select></label>

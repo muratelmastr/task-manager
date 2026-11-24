@@ -1022,7 +1022,10 @@
     badge.textContent = task ? (taskNoLabel(task) || '#…') : '';
     badge.title = task && !task.no ? 'Numara kaydedildikten sonra atanır' : '';
     form.elements.gorev.value = draft.gorev;
-    for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key], EMPTY_LABELS[key]);
+    for (const key of LIST_KEYS) fillOptions(form.elements[key], key, draft[key], key === 'alan' && !task ? 'Alan seçin…' : EMPTY_LABELS[key]);
+    // A new task can't be created without an Alan (existing tasks without one can still be edited).
+    $('#alan-required').hidden = !!task;
+    showAlanError(false);
     fillPriorityOptions(form.elements.oncelik, draft.oncelik);
     form.elements.tamamlanmaTarihi.value = draft.tamamlanmaTarihi;
     // createdAt is set automatically on creation; new tasks don't have one yet.
@@ -1048,6 +1051,11 @@
   function showGorevError(show) {
     $('#task-form').elements.gorev.setAttribute('aria-invalid', String(show));
     $('#gorev-error').hidden = !show;
+  }
+
+  function showAlanError(show) {
+    $('#task-form').elements.alan.setAttribute('aria-invalid', String(show));
+    $('#alan-error').hidden = !show;
   }
 
   function updateTaskFormState() {
@@ -1084,6 +1092,11 @@
       showGorevError(true);
       alert('Görev açıklaması boş olamaz.');
       form.elements.gorev.focus();
+      return;
+    }
+    if (!editingTask && !form.elements.alan.value) {
+      showAlanError(true);
+      form.elements.alan.focus();
       return;
     }
     const tarih = form.elements.tamamlanmaTarihi.value;
@@ -1713,18 +1726,9 @@
     };
   }
 
+  // New tasks are created in the details dialog (Alan is required there).
   function addTask() {
-    if (ui.view === 'board') {
-      openTaskDialog(null);
-      return;
-    }
-    const task = newTaskDraft();
-    data.tasks.push(task);
-    markAssignment(task, '');
-    ui.pinned.add(task.id);
-    save();
-    render();
-    document.querySelector(`tr[data-id="${CSS.escape(task.id)}"] .gorev-input`)?.focus();
+    openTaskDialog(null);
   }
 
   async function deleteTask(task) {
@@ -2894,6 +2898,7 @@
     $('#task-form').addEventListener('submit', saveTaskDialog);
     const gorevInput = $('#task-form').elements.gorev;
     gorevInput.addEventListener('input', updateTaskFormState);
+    $('#task-form').elements.alan.addEventListener('change', (e) => { if (e.target.value) showAlanError(false); });
     gorevInput.addEventListener('blur', () => { if ($('#task-dialog').open && !gorevInput.value.trim()) showGorevError(true); });
     document.querySelectorAll('#task-dialog [data-close]').forEach((btn) => {
       btn.addEventListener('click', closeTaskDialog);
