@@ -6,6 +6,7 @@
   const MIGRATED_KEY = 'taskManager.v1.migratedAt';
   const VIEW_KEY = 'taskManager.view';
   const TS_TAB_KEY = 'taskManager.tsTab';
+  const NOTIFY_KEY = 'taskManager.notifyPending';
   const POLL_MS = 30000;
   const config = window.TASK_MANAGER_CONFIG || {};
   const cloudEnabled = !!(config.databaseUrl && window.TaskCloud);
@@ -16,6 +17,8 @@
   const richTasks = !cloudEnabled || !!auth;
   const attachmentsEnabled = !!auth;
   const timesheetEnabled = !!auth && !!window.TaskTimesheet;
+  // Assignment mails are sent by a small server function (see notify-function/).
+  const notifyUrl = auth ? String(config.notifyUrl || '').trim() : '';
   const MAX_FILE_BYTES = 10 * 1024 * 1024;
   const CHUNK_BYTES = 384 * 1024; // 512 KB once base64-encoded
   const LOGIN_MESSAGE_KEY = 'taskManager.loginMessage';
@@ -1122,6 +1125,7 @@
       }
     }
 
+    const previousSahip = task ? task.sahip : '';
     if (task) {
       for (const [field, value] of Object.entries(values)) applyChange(task, field, value);
     } else {
@@ -1130,6 +1134,7 @@
       data.tasks.push(task);
       if (task.durum !== DONE || !isHiddenWhenDone()) ui.pinned.add(task.id);
     }
+    markAssignment(task, previousSahip);
     save();
     desc.loaded = false;
     $('#task-dialog').close();
@@ -1674,7 +1679,9 @@
   }
 
   function onFieldChange(task, field, value, tr) {
+    const previousSahip = task.sahip;
     if (!applyChange(task, field, value)) return;
+    if (field === 'sahip') markAssignment(task, previousSahip);
     save();
 
     if (field === 'durum' && value === DONE && isHiddenWhenDone()) {
@@ -1713,6 +1720,7 @@
     }
     const task = newTaskDraft();
     data.tasks.push(task);
+    markAssignment(task, '');
     ui.pinned.add(task.id);
     save();
     render();
@@ -2301,7 +2309,7 @@
     cloud.ready = true;
     persistCloudCache();
     if (auth) renderUser();
-    if (firstLoad) { render(); offerMigration(); } else if (changed) renderWhenIdle();
+    if (firstLoad) { render(); offerMigration(); openDeepLinkedTask(); } else if (changed) renderWhenIdle();
   }
 
   async function runSync(pull) {
@@ -2318,6 +2326,7 @@
       cloud.lastSyncAt = nowIso();
       persistCloudCache();
       setCloudStatus('saved');
+      sendAssignmentMails();
     } catch (err) {
       console.warn('Eşitleme hatası', err);
       if (auth && (err.code === 'noaccess' || err.code === 'denied')) {
@@ -2394,6 +2403,96 @@
     return false; // still rejected: most likely the database rules haven't been published yet
   }
 
+  // ---------- Assignment mails ----------
+  // When the signed-in user makes a teammate the Sahip of a task, the notify function mails them once
+  // the task is saved to the shared database. Marks live in localStorage, so offline edits and reloads
+  // still notify; the function itself skips self-assignments and assignments it has already mailed.
+
+  const NOTIFY_MAX_ATTEMPTS = 3;
+
+  function pendingNotify() {
+    try {
+      const p = JSON.parse(localStorage.getItem(NOTIFY_KEY));
+      return p && typeof p === 'object' ? p : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function setPendingNotify(p) {
+    if (Object.keys(p).length) localStorage.setItem(NOTIFY_KEY, JSON.stringify(p));
+    else localStorage.removeItem(NOTIFY_KEY);
+  }
+
+  function markAssignment(task, previousSahip) {
+    if (!notifyUrl || !task.sahip || task.sahip === previousSahip) return;
+    const p = pendingNotify();
+    p[task.id] = 0;
+    setPendingNotify(p);
+  }
+
+  async function postNotify(id, force = false) {
+    const token = await auth.getToken(force);
+    const res = await fetch(notifyUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: id }),
+    });
+    if (res.status === 401 && !force) return postNotify(id, true);
+    return res;
+  }
+
+  async function sendAssignmentMails() {
+    if (!notifyUrl || !cloud || cloud.notifying) return;
+    const p = pendingNotify();
+    const ready = [];
+    for (const [id, attempts] of Object.entries(p)) {
+      const t = data.tasks.find((x) => x.id === id);
+      if (!t || !t.sahip || (currentUser && t.sahip === currentUser.kullaniciAdi)) { delete p[id]; continue; }
+      if (cloud.remote.tasks[id] !== taskSig(t) || !t.gorev.trim()) continue; // not saved yet / no title yet
+      ready.push([id, Number(attempts) || 0]);
+      delete p[id];
+    }
+    setPendingNotify(p);
+    if (!ready.length) return;
+    cloud.notifying = true;
+    try {
+      for (const [id, attempts] of ready) {
+        let retry = false;
+        try {
+          const res = await postNotify(id);
+          retry = res.status >= 500;
+          if (!res.ok) console.warn('Atama maili gönderilemedi', res.status, await res.text());
+        } catch (err) {
+          retry = true;
+          console.warn('Atama maili gönderilemedi', err);
+        }
+        if (retry && attempts + 1 < NOTIFY_MAX_ATTEMPTS) {
+          const again = pendingNotify();
+          if (!(id in again)) again[id] = attempts + 1;
+          setPendingNotify(again);
+        }
+      }
+    } finally {
+      cloud.notifying = false;
+    }
+  }
+
+  // ---------- Deep link (?gorev=No) ----------
+
+  function openDeepLinkedTask() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('gorev')) return;
+    const raw = params.get('gorev');
+    params.delete('gorev');
+    const qs = params.toString();
+    history.replaceState(history.state, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`);
+    const no = /^[1-9][0-9]{0,6}$/.test(raw) ? Number(raw) : null;
+    const task = no ? data.tasks.find((t) => t.no === no) : null;
+    if (task) openTaskDialog(task);
+    else toast(`#${raw} numaralı görev bulunamadı.`);
+  }
+
   async function startCloud() {
     document.body.classList.add('cloud-mode');
     $('#cloud-bar').hidden = false;
@@ -2428,6 +2527,7 @@
     if (leaving) return;
     leaving = true;
     auth.signOut();
+    localStorage.removeItem(NOTIFY_KEY); // marks belong to this user's session
     if (clearCache) localStorage.removeItem(CLOUD_CACHE_KEY);
     if (message) sessionStorage.setItem(LOGIN_MESSAGE_KEY, message);
     location.reload();
@@ -2557,6 +2657,7 @@
     }
     render();
     if (cloud) await startCloud();
+    else openDeepLinkedTask();
   }
 
   // ---------- Event wiring ----------
