@@ -2,9 +2,13 @@
 
 // Görev atama maili: uygulama, bir görevin Sahip'ini değiştiren kullanıcının Firebase ID token'ıyla
 // bu fonksiyonu çağırır. Token doğrulanır, görev ve kullanıcılar çağıranın yetkisiyle okunur
-// (veritabanı kuralları geçerlidir) ve mail Resend ile gönderilir. Aynı atama için ikinci mail gitmez.
+// (veritabanı kuralları geçerlidir) ve mail gönderilir. Aynı atama için ikinci mail gitmez.
+// Gönderim: ACS_CONNECTION_STRING varsa Azure Communication Services Email, yoksa Resend.
+
+const crypto = require('crypto');
 
 const MAX_KEY = 120;
+const ACS_API_VERSION = '2023-03-31';
 
 // Firebase keys may not contain . # $ [ ] / or control characters (same encoding as cloud.js).
 const encodeKey = (id) => String(id).replace(/[.#$[\]/%\u0000-\u001f\u007f]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase()}`);
@@ -20,11 +24,23 @@ class HttpError extends Error {
   }
 }
 
+// "endpoint=https://x.communication.azure.com/;accesskey=..."
+function parseAcs(conn) {
+  const parts = Object.fromEntries(String(conn).split(';').filter(Boolean).map((p) => {
+    const i = p.indexOf('=');
+    return [p.slice(0, i).trim().toLowerCase(), p.slice(i + 1).trim()];
+  }));
+  if (!parts.endpoint || !parts.accesskey) throw new HttpError(500, 'Geçersiz ACS_CONNECTION_STRING.');
+  return { endpoint: parts.endpoint.replace(/\/+$/, ''), key: parts.accesskey };
+}
+
 function settings(env) {
-  const need = ['RESEND_API_KEY', 'FIREBASE_API_KEY', 'FIREBASE_DB_URL', 'APP_URL', 'MAIL_FROM'];
+  const acs = env.ACS_CONNECTION_STRING ? parseAcs(env.ACS_CONNECTION_STRING) : null;
+  const need = ['FIREBASE_API_KEY', 'FIREBASE_DB_URL', 'APP_URL', 'MAIL_FROM', ...(acs ? [] : ['RESEND_API_KEY'])];
   const missing = need.filter((k) => !env[k]);
   if (missing.length) throw new HttpError(500, `Eksik ayar: ${missing.join(', ')}`);
   return {
+    acs,
     resendKey: env.RESEND_API_KEY,
     apiKey: env.FIREBASE_API_KEY,
     db: env.FIREBASE_DB_URL.replace(/\/+$/, ''),
@@ -126,7 +142,7 @@ async function handleNotify({ authorization, body, env, fetchFn = fetch, log = c
     if (!owner || !owner.email) return skip('unknown-owner');
     if (owner.kullaniciAdi === caller.kullaniciAdi) return skip('self');
     // Until the /assignmentMails rules are published this read is denied: send anyway (the client
-    // only calls on real Sahip changes and Resend's idempotency key covers retries).
+    // only calls on real Sahip changes and the provider's idempotency key covers retries).
     const sent = await db.get(`assignmentMails/${key}`).catch((err) => {
       if (err.status !== 403) throw err;
       if (log.warn) log.warn('assignmentMails not readable – publish database.rules.json');
@@ -137,33 +153,22 @@ async function handleNotify({ authorization, body, env, fetchFn = fetch, log = c
     const redirected = !!cfg.redirectTo;
     const link = task.no ? `${cfg.appUrl}?gorev=${task.no}` : cfg.appUrl;
     const mail = buildMail({ task, owner, caller, link, redirected });
-    const res = await fetchFn('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${cfg.resendKey}`,
-        'Content-Type': 'application/json',
-        'Idempotency-Key': `assign/${key}/${task.sahip}/${task.updatedAt || ''}`.slice(0, 256),
-      },
-      body: JSON.stringify({
-        from: cfg.from,
-        to: [redirected ? cfg.redirectTo : owner.email],
-        reply_to: caller.email,
-        subject: redirected ? `[Test → ${fullName(owner)} <${owner.email}>] ${mail.subject}` : mail.subject,
-        html: mail.html,
-        text: mail.text,
-      }),
+    const id = await sendMail(cfg, fetchFn, log, {
+      to: redirected ? cfg.redirectTo : owner.email,
+      toName: redirected ? '' : fullName(owner),
+      replyTo: caller.email,
+      replyToName: fullName(caller),
+      subject: redirected ? `[Test → ${fullName(owner)} <${owner.email}>] ${mail.subject}` : mail.subject,
+      html: mail.html,
+      text: mail.text,
+      idempotencyKey: `assign/${key}/${task.sahip}/${task.updatedAt || ''}`,
     });
-    const result = await readJson(res);
-    if (!res.ok) {
-      if (log.warn) log.warn('Resend error', res.status, JSON.stringify(result));
-      throw new HttpError(502, `Mail gönderilemedi: ${(result && result.message) || res.status}`);
-    }
     try {
       await db.put(`assignmentMails/${key}`, { sahip: task.sahip, at: new Date().toISOString() });
     } catch (err) {
       if (log.warn) log.warn('assignmentMails write failed', err.message);
     }
-    return { status: 200, body: { status: 'sent', id: result && result.id } };
+    return { status: 200, body: { status: 'sent', id } };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };
     if (log.error) log.error('notify failed', err);
@@ -171,4 +176,65 @@ async function handleNotify({ authorization, body, env, fetchFn = fetch, log = c
   }
 }
 
-module.exports = { handleNotify, buildMail, encodeKey };
+// Deterministic UUID from the idempotency key (ACS Operation-Id must be a UUID).
+function uuidFrom(text) {
+  const h = crypto.createHash('sha256').update(text).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+// Azure Communication Services HMAC-SHA256 request signing.
+function acsHeaders(acs, method, url, body) {
+  const u = new URL(url);
+  const date = new Date().toUTCString();
+  const contentHash = crypto.createHash('sha256').update(body).digest('base64');
+  const toSign = `${method}\n${u.pathname}${u.search}\n${date};${u.host};${contentHash}`;
+  const signature = crypto.createHmac('sha256', Buffer.from(acs.key, 'base64')).update(toSign).digest('base64');
+  return {
+    'x-ms-date': date,
+    'x-ms-content-sha256': contentHash,
+    Authorization: `HMAC-SHA256 SignedHeaders=x-ms-date;host;x-ms-content-sha256&Signature=${signature}`,
+  };
+}
+
+const addressOf = (from) => { const m = /<([^>]+)>/.exec(from); return (m ? m[1] : from).trim(); };
+
+async function sendMail(cfg, fetchFn, log, m) {
+  if (cfg.acs) {
+    const url = `${cfg.acs.endpoint}/emails:send?api-version=${ACS_API_VERSION}`;
+    const body = JSON.stringify({
+      senderAddress: addressOf(cfg.from),
+      content: { subject: m.subject, plainText: m.text, html: m.html },
+      recipients: { to: [{ address: m.to, ...(m.toName ? { displayName: m.toName } : {}) }] },
+      replyTo: [{ address: m.replyTo, displayName: m.replyToName }],
+      userEngagementTrackingDisabled: true,
+    });
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Operation-Id': uuidFrom(m.idempotencyKey), ...acsHeaders(cfg.acs, 'POST', url, body) },
+      body,
+    });
+    const result = await readJson(res);
+    if (res.status === 202 || res.ok) return (result && result.id) || res.headers?.get?.('operation-id') || null;
+    if (log.warn) log.warn('ACS error', res.status, JSON.stringify(result));
+    const message = (result && result.error && result.error.message) || res.status;
+    // 429: the Azure managed domain allows only a few mails per minute/hour – the app retries later.
+    throw new HttpError(res.status === 429 ? 503 : 502, `Mail gönderilemedi: ${message}`);
+  }
+  const res = await fetchFn('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${cfg.resendKey}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': m.idempotencyKey.slice(0, 256),
+    },
+    body: JSON.stringify({ from: cfg.from, to: [m.to], reply_to: m.replyTo, subject: m.subject, html: m.html, text: m.text }),
+  });
+  const result = await readJson(res);
+  if (!res.ok) {
+    if (log.warn) log.warn('Resend error', res.status, JSON.stringify(result));
+    throw new HttpError(502, `Mail gönderilemedi: ${(result && result.message) || res.status}`);
+  }
+  return result && result.id;
+}
+
+module.exports = { handleNotify, buildMail, encodeKey, acsHeaders, uuidFrom };
