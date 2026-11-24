@@ -2408,7 +2408,8 @@
   // the task is saved to the shared database. Marks live in localStorage, so offline edits and reloads
   // still notify; the function itself skips self-assignments and assignments it has already mailed.
 
-  const NOTIFY_MAX_ATTEMPTS = 3;
+  // Retry delays for temporary failures (e.g. the mail service's hourly limit), in minutes.
+  const NOTIFY_RETRY_MINUTES = [1, 5, 10, 15, 15, 15, 15, 15];
 
   function pendingNotify() {
     try {
@@ -2427,7 +2428,7 @@
   function markAssignment(task, previousSahip) {
     if (!notifyUrl || !task.sahip || task.sahip === previousSahip) return;
     const p = pendingNotify();
-    p[task.id] = 0;
+    p[task.id] = { n: 0, after: 0 };
     setPendingNotify(p);
   }
 
@@ -2446,11 +2447,13 @@
     if (!notifyUrl || !cloud || cloud.notifying) return;
     const p = pendingNotify();
     const ready = [];
-    for (const [id, attempts] of Object.entries(p)) {
+    const now = Date.now();
+    for (const [id, mark] of Object.entries(p)) {
       const t = data.tasks.find((x) => x.id === id);
       if (!t || !t.sahip || (currentUser && t.sahip === currentUser.kullaniciAdi)) { delete p[id]; continue; }
       if (cloud.remote.tasks[id] !== taskSig(t) || !t.gorev.trim()) continue; // not saved yet / no title yet
-      ready.push([id, Number(attempts) || 0]);
+      if (mark && mark.after > now) continue; // waiting before a retry
+      ready.push([id, (mark && Number(mark.n)) || 0]);
       delete p[id];
     }
     setPendingNotify(p);
@@ -2467,9 +2470,9 @@
           retry = true;
           console.warn('Atama maili gönderilemedi', err);
         }
-        if (retry && attempts + 1 < NOTIFY_MAX_ATTEMPTS) {
+        if (retry && attempts < NOTIFY_RETRY_MINUTES.length) {
           const again = pendingNotify();
-          if (!(id in again)) again[id] = attempts + 1;
+          if (!(id in again)) again[id] = { n: attempts + 1, after: Date.now() + NOTIFY_RETRY_MINUTES[attempts] * 60000 };
           setPendingNotify(again);
         }
       }

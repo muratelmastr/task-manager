@@ -56,7 +56,7 @@ Veriler ekibin **Firebase Realtime Database** veritabanında saklanır; giriş *
 - **Sahip listesi = kullanıcılar:** Sahip değerleri `/users` listesinden (sıra alanına göre) otomatik oluşur; Ayarlar'da salt okunurdur. Kullanıcı eklemeden önceki isimler ("Murat E.", "Murat Elmas" gibi) tek bir kullanıcıya açıkça uyuyorsa otomatik olarak kullanıcı adına çevrilir.
 - **Oluşturan:** Yeni görevlerde görevi oluşturan kullanıcı kaydedilir ve görev penceresinde "Oluşturan" olarak gösterilir (sonradan değiştirilemez). Liste ve kartlarda gösterilmez.
 - **Benim görevlerim:** Araç çubuğundaki kişi ikonlu düğme, Sahip filtresini giriş yapan kullanıcıya ayarlar; tekrar tıklayınca kaldırır.
-- **Atama maili:** Bir görev bir ekip üyesine atandığında (sahibi olarak yeni görev oluşturulduğunda veya Sahip değiştirildiğinde) o kişiye mail gider. Mailde görev no, başlık, Alan, Öncelik, Durum, Tamamlanma Tarihi, atayan kişi ve görevi doğrudan açan **Görevi aç** bağlantısı (`?gorev=No`) bulunur. Kişi kendini atarsa veya görev Sahip değişmeden kaydedilirse mail gitmez. Çevrimdışıyken yapılan atamalar bağlantı gelince bildirilir. Ayrıntılar: [Atama maili kurulumu](#atama-maili-kurulumu-azure-functions--resend).
+- **Atama maili:** Bir görev bir ekip üyesine atandığında (sahibi olarak yeni görev oluşturulduğunda veya Sahip değiştirildiğinde) o kişiye mail gider. Mailde görev no, başlık, Alan, Öncelik, Durum, Tamamlanma Tarihi, atayan kişi ve görevi doğrudan açan **Görevi aç** bağlantısı (`?gorev=No`) bulunur. Kişi kendini atarsa veya görev Sahip değişmeden kaydedilirse mail gitmez. Çevrimdışıyken yapılan atamalar bağlantı gelince bildirilir. Ayrıntılar: [Atama maili kurulumu](#atama-maili-kurulumu-azure-functions).
 - Her değişiklik **otomatik olarak** kaydedilir; tüm ekip aynı listeyi görür. Başkalarının değişiklikleri 30 saniyede bir ve sayfaya dönüldüğünde çekilir.
 - Bağlantı koparsa değişiklikler tarayıcıda bekletilir ("Çevrimdışı") ve bağlantı gelince gönderilir. Sol menünün altında eşitleme durumu görünür.
 - Veritabanı kuralları (`database.rules.json`) ayrıca şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin veya görev numarasının değiştirilmesi, aynı numaranın iki göreve verilmesi, başkasının yüklediği ekin silinmesi, başkası adına zaman girişi yapılması, başkasının veya 30 günden eski girişlerin değiştirilmesi, 0,25 adımına uymayan ya da 24 saati aşan süreler ve hatalı biçimli kayıtlar.
@@ -123,13 +123,22 @@ window.TASK_MANAGER_CONFIG = {
 
 Değişikliği `main` dalına gönderdiğinizde GitHub Pages sayfası güncellenir. Ücretsiz Spark planı (1 GB depolama, aylık 10 GB indirme, 50.000 aylık aktif kullanıcıya kadar Authentication) bir ekip görev listesi için fazlasıyla yeterlidir; kredi kartı gerekmez.
 
-## Atama maili kurulumu (Azure Functions + Resend)
+## Atama maili kurulumu (Azure Functions)
 
-GitHub Pages yalnızca statik dosya sunar ve depo herkese açıktır; Resend API anahtarı tarayıcı koduna konamaz. Bu yüzden mailleri `notify-function/` klasöründeki küçük bir **Azure Function** gönderir:
+GitHub Pages yalnızca statik dosya sunar ve depo herkese açıktır; mail servisinin anahtarı tarayıcı koduna konamaz. Bu yüzden mailleri `notify-function/` klasöründeki küçük bir **Azure Function** gönderir:
 
 1. Uygulama, görevi veritabanına kaydettikten sonra `config.js` içindeki `notifyUrl` adresine giriş yapan kullanıcının oturum token'ı ile `{ "task": "<görev id>" }` gönderir.
-2. Fonksiyon token'ı Firebase'e doğrulatır, görevi ve `/users` listesini **çağıranın yetkisiyle** okur (veritabanı kuralları geçerlidir), görevin sahibine Resend ile mail atar ve `/assignmentMails/{id}` kaydını yazar. Aynı kişiye aynı görev için ikinci mail gitmez; kişi kendini atadıysa mail gitmez.
+2. Fonksiyon token'ı Firebase'e doğrulatır, görevi ve `/users` listesini **çağıranın yetkisiyle** okur (veritabanı kuralları geçerlidir), görevin sahibine mail atar ve `/assignmentMails/{id}` kaydını yazar. Aynı kişiye aynı görev için ikinci mail gitmez; kişi kendini atadıysa mail gitmez.
 3. Yalnızca `https://muratelmastr.github.io` adresinden gelen istekler kabul edilir (CORS); geçersiz oturumlar 401 alır.
+4. Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama 1, 5, 10 ve 15'er dakika arayla (toplam yaklaşık 1,5 saat) yeniden dener.
+
+Mail iki servisten biriyle gönderilir: `ACS_CONNECTION_STRING` ayarı varsa **Azure Communication Services**, yoksa **Resend**.
+
+| | Azure Communication Services (hedef) | Resend (şu an) |
+|---|---|---|
+| Domain | Gerekmez – Azure'un ücretsiz yönetilen domaini (`DoNotReply@….azurecomm.net`) | Doğrulanmış domain gerekir; yoksa yalnızca Resend hesabının sahibine gider |
+| Alıcı | Herkes | Domain olmadan yalnızca hesap sahibi (`MAIL_REDIRECT_TO`) |
+| Sınır | Dakikada 5, saatte 10 mail (abonelik başına) | Günde 100 mail (ücretsiz plan) |
 
 Mevcut kurulum:
 
@@ -143,17 +152,19 @@ Function App ayarları (**Ortam değişkenleri**):
 
 | Ayar | Değer |
 |---|---|
-| `RESEND_API_KEY` | Resend API anahtarı (yalnızca gönderme yetkili). **Depoya yazılmaz.** |
+| `ACS_CONNECTION_STRING` | Azure Communication Services bağlantı dizesi. Doluysa mailler ACS ile gider. **Depoya yazılmaz.** |
+| `RESEND_API_KEY` | Resend API anahtarı (yalnızca gönderme yetkili; ACS yoksa kullanılır). **Depoya yazılmaz.** |
 | `FIREBASE_API_KEY` | `config.js` içindeki `apiKey` |
 | `FIREBASE_DB_URL` | `config.js` içindeki `databaseUrl` |
 | `APP_URL` | `https://muratelmastr.github.io/task-manager/` ("Görevi aç" bağlantısı) |
-| `MAIL_FROM` | Gönderen, ör. `Ekip Görev Takibi <onboarding@resend.dev>` |
+| `MAIL_FROM` | Gönderen. ACS: `DoNotReply@….azurecomm.net`; Resend: `Ekip Görev Takibi <onboarding@resend.dev>` |
 | `MAIL_REDIRECT_TO` | *(isteğe bağlı)* Doluysa tüm mailler bu adrese gider ve konuda asıl alıcı yazar (test modu) |
 
-> **Şu an test modundadır:** Resend'de doğrulanmış bir domain olmadan `onboarding@resend.dev` yalnızca Resend hesabının sahibine mail atabilir. Bu yüzden `MAIL_REDIRECT_TO` dolu ve tüm atama mailleri o adrese gider. Gerçek alıcılara göndermek için:
-> 1. Resend → **Domains → Add Domain** (ör. `logosoft.com.tr` veya `bildirim.logosoft.com.tr`) ve verilen DNS kayıtlarını ekleyip doğrulayın.
-> 2. `az functionapp config appsettings set -g rg-MURAT -n task-manager-notify-wf3n2h --settings "MAIL_FROM=Ekip Görev Takibi <gorev@DOMAIN>"`
-> 3. `az functionapp config appsettings delete -g rg-MURAT -n task-manager-notify-wf3n2h --setting-names MAIL_REDIRECT_TO`
+> **Şu an test modundadır (Resend):** Tüm atama mailleri `MAIL_REDIRECT_TO` adresine gider. Görev sahiplerine göndermek için **Azure Communication Services**'e geçilir (domain gerekmez):
+> 1. Abonelik yöneticisi bir kez `Microsoft.Communication` kaynak sağlayıcısını kaydeder: Azure portalı → **Subscriptions → 14K Azure Subscription 2026 -LG → Resource providers → Microsoft.Communication → Register** (veya `az provider register -n Microsoft.Communication`). Bu, `rg-MURAT` üzerindeki Owner yetkisiyle yapılamaz.
+> 2. `notify-function` klasöründe `.\setup-acs.ps1` çalıştırılır. Betik e-posta servisini, Azure yönetilen domaini ve Communication Services kaynağını `rg-MURAT` içinde oluşturur; bağlantı dizesini ve gönderen adresini Function App'e yazar ve test yönlendirmesini kaldırır.
+>
+> İleride kendi domaininiz olursa Resend'e (veya ACS'te özel domaine) geçilebilir: Resend'de domaini doğrulayın, `MAIL_FROM` ayarını o domainden bir adresle değiştirin ve `ACS_CONNECTION_STRING` ile `MAIL_REDIRECT_TO` ayarlarını silin.
 
 Resend anahtarını değiştirmek (yenisini oluşturup eskisini Resend'de silin):
 
@@ -169,7 +180,7 @@ tar -a -c -f ..\notify.zip host.json package.json src node_modules
 az functionapp deployment source config-zip -g rg-MURAT -n task-manager-notify-wf3n2h --src ..\notify.zip
 ```
 
-> `notifyUrl` boş bırakılırsa uygulama mail göndermeye çalışmaz. `/assignmentMails` kuralı yayımlanmadan da mail gider; yalnızca "aynı atamaya ikinci mail gitmesin" kaydı tutulamaz. Maliyet: bu hacimde Azure Functions ve Resend ücretsiz kotası içinde kalır.
+> `notifyUrl` boş bırakılırsa uygulama mail göndermeye çalışmaz. `/assignmentMails` kuralı yayımlanmadan da mail gider; yalnızca "aynı atamaya ikinci mail gitmesin" kaydı tutulamaz. Maliyet: bu hacimde Azure Functions, ACS (mail başına yaklaşık 0,00025 $) ve Resend fiilen ücretsizdir.
 
 ## Yerel kullanım
 
@@ -187,4 +198,4 @@ Depoyu indirip `index.html` dosyasını tarayıcıda açmanız yeterlidir. Excel
 | `timesheet.js` | Timesheet: zaman girişleri, giriş penceresi ve raporlar |
 | `config.js` | Veritabanı adresi (`databaseUrl`), Web API anahtarı (`apiKey`) ve atama maili fonksiyonunun adresi (`notifyUrl`) |
 | `database.rules.json` | Firebase konsoluna yapıştırılacak veritabanı kuralları |
-| `notify-function/` | Atama maillerini Resend ile gönderen Azure Function (Node.js) |
+| `notify-function/` | Atama maillerini gönderen Azure Function (Node.js; Azure Communication Services veya Resend) ve ACS kurulum betiği `setup-acs.ps1` |
