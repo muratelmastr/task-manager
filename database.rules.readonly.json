@@ -1,0 +1,99 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()"
+    },
+    "tasks": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        "id": {},
+        "gorev": {},
+        "alan": {},
+        "sahip": {},
+        "durum": {},
+        "oncelik": {},
+        "tamamlanmaTarihi": {},
+        "completedAt": {},
+        "createdAt": {},
+        "updatedAt": {},
+        "createdBy": {},
+        "no": {},
+        "aciklamaVar": {},
+        "ekSayisi": {},
+        "$other": {}
+      }
+    },
+    "lists": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {}
+    },
+    "taskNumbers": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$no": {}
+    },
+    "details": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        "aciklama": {},
+        "updatedAt": {},
+        "updatedBy": {},
+        "$other": {}
+      }
+    },
+    "attachments": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        "$fileId": {
+          "ad": {},
+          "boyut": {},
+          "tur": {},
+          "yukleyen": {},
+          "yuklenmeTarihi": {},
+          "parca": {},
+          "$other": {}
+        }
+      }
+    },
+    "files": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        "$fileId": {
+          "yukleyen": {},
+          "p": {
+            "$i": {}
+          },
+          "$other": {}
+        }
+      }
+    },
+    "assignmentMails": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        "sahip": {},
+        "at": {},
+        "$other": {}
+      }
+    },
+    "timesheets": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      ".indexOn": [
+        "tarih",
+        "gorevId"
+      ],
+      "$id": {
+        "gorevId": {},
+        "kullanici": {},
+        "tarih": {},
+        "gun": {},
+        "saat": {},
+        "not": {},
+        "gorevNo": {},
+        "gorevAdi": {},
+        "alan": {},
+        "createdAt": {},
+        "updatedAt": {},
+        "$other": {}
+      }
+    }
+  }
+}

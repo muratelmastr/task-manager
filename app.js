@@ -9,16 +9,17 @@
   const NOTIFY_KEY = 'taskManager.notifyPending';
   const POLL_MS = 30000;
   const config = window.TASK_MANAGER_CONFIG || {};
-  const cloudEnabled = !!(config.databaseUrl && window.TaskCloud);
-  // With an apiKey every team member signs in with their own e-mail and password.
-  const auth = cloudEnabled && config.apiKey && window.TaskAuth ? window.TaskAuth.createAuth(config) : null;
+  // Shared database: the Azure API (apiUrl, always with sign-in) or Firebase (databaseUrl [+ apiKey]).
+  const cloudEnabled = !!((config.apiUrl || config.databaseUrl) && window.TaskCloud);
+  // With an apiUrl/apiKey every team member signs in with their own e-mail and password.
+  const auth = cloudEnabled && (config.apiUrl || config.apiKey) && window.TaskAuth ? window.TaskAuth.createAuth(config) : null;
   // Task numbers and descriptions work in local mode and in the signed-in shared database;
   // attachments need the shared database. The legacy no-login mode keeps the old record format.
   const richTasks = !cloudEnabled || !!auth;
   const attachmentsEnabled = !!auth;
   const timesheetEnabled = !!auth && !!window.TaskTimesheet;
-  // Assignment mails are sent by a small server function (see notify-function/).
-  const notifyUrl = auth ? String(config.notifyUrl || '').trim() : '';
+  // Assignment mails are sent by the API (see api/).
+  const notifyUrl = auth ? String(config.notifyUrl || (config.apiUrl ? `${String(config.apiUrl).replace(/\/+$/, '')}/assignment-notify` : '')).trim() : '';
   const MAX_FILE_BYTES = 10 * 1024 * 1024;
   const CHUNK_BYTES = 384 * 1024; // 512 KB once base64-encoded
   const LOGIN_MESSAGE_KEY = 'taskManager.loginMessage';
@@ -1891,7 +1892,7 @@
     }));
   }
 
-  // Signed-in mode: owners are the user accounts, managed in the Firebase console.
+  // Signed-in mode: owners are the user accounts (/users).
   function buildUserListSection() {
     const items = directory.map((u) => {
       const used = usageCount('sahip', u.kullaniciAdi);
@@ -2063,7 +2064,7 @@
     XLSX.writeFile(wb, `gorevler-${todayIso()}.xlsx`);
   }
 
-  // ---------- Cloud sync (Firebase Realtime Database) ----------
+  // ---------- Cloud sync (Azure API / Firebase Realtime Database) ----------
 
   const taskValue = (t) => {
     const v = { id: t.id, gorev: t.gorev, alan: t.alan, sahip: t.sahip, durum: t.durum, tamamlanmaTarihi: t.tamamlanmaTarihi, createdAt: t.createdAt, updatedAt: t.updatedAt };
@@ -2656,6 +2657,47 @@
     field(field('email').value ? 'password' : 'email').focus();
   }
 
+  // ?sifre=<token>: the link from the password e-mail (Azure sign-in).
+  function showPasswordReset(token) {
+    const params = new URLSearchParams(location.search);
+    params.delete('sifre');
+    const qs = params.toString();
+    history.replaceState(history.state, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`);
+    document.body.classList.add('auth-locked');
+    $('#login-screen').hidden = false;
+    $('#login-form').hidden = true;
+    const form = $('#reset-form');
+    form.hidden = false;
+    const box = $('#reset-message');
+    const show = (text, kind = 'error') => { box.hidden = !text; box.textContent = text || ''; box.className = `login-message is-${kind}`; };
+    const busy = (on) => {
+      const submit = form.querySelector('.login-submit');
+      submit.disabled = on;
+      submit.querySelector('.spinner').hidden = !on;
+      submit.querySelector('.login-submit-label').textContent = on ? 'Kaydediliyor…' : 'Şifreyi kaydet';
+    };
+    $('#btn-reset-cancel').addEventListener('click', () => location.reload());
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = form.elements.password.value;
+      const pw2 = form.elements.password2.value;
+      if (pw.length < 6) { show('Şifre en az 6 karakter olmalı.'); form.elements.password.focus(); return; }
+      if (pw !== pw2) { show('Şifreler aynı değil.'); form.elements.password2.focus(); return; }
+      busy(true);
+      show('');
+      try {
+        await auth.confirmPasswordReset(token, pw);
+      } catch (err) {
+        busy(false);
+        show(err.message);
+        return;
+      }
+      leaving = true;
+      location.reload();
+    });
+    form.elements.password.focus();
+  }
+
   async function startApp() {
     if (auth) {
       auth.onSessionEnded((reason) => endSession(reason));
@@ -2994,7 +3036,7 @@
 
     // Keep multiple open tabs in sync.
     window.addEventListener('storage', (e) => {
-      if (auth && e.key === window.TaskAuth.SESSION_KEY) {
+      if (auth && e.key === auth.sessionKey) {
         // Signed in or out in another tab (token refreshes keep the same user).
         let email = '';
         try { email = e.newValue ? JSON.parse(e.newValue).email : ''; } catch (err) { /* ignore */ }
@@ -3020,6 +3062,8 @@
   }
 
   bindEvents();
-  if (auth && !auth.session) showLogin();
+  const resetToken = auth && auth.supportsReset ? new URLSearchParams(location.search).get('sifre') : null;
+  if (resetToken) showPasswordReset(resetToken);
+  else if (auth && !auth.session) showLogin();
   else startApp();
 })();

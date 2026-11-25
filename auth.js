@@ -1,9 +1,12 @@
-// Firebase Authentication (e-mail/password) via the Identity Toolkit REST API – no SDK.
+// Sign-in with e-mail/password – no SDK. Two backends with the same interface:
+//   cfg.apiUrl  -> the Azure API (api/src/lib/auth.js): /auth/login, /auth/refresh, /auth/reset-*
+//   cfg.apiKey  -> Firebase Authentication (Identity Toolkit REST API; kept for rollback)
 // The session (refresh token + short-lived ID token) is kept in localStorage until sign-out.
 (() => {
   'use strict';
 
-  const SESSION_KEY = 'taskManager.auth.v1';
+  const FIREBASE_SESSION_KEY = 'taskManager.auth.v1';
+  const AZURE_SESSION_KEY = 'taskManager.auth.v2';
   const IDENTITY_URL = 'https://identitytoolkit.googleapis.com/v1/accounts';
   const TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
   const REFRESH_MARGIN_MS = 5 * 60 * 1000; // refresh before the 1h ID token expires
@@ -24,6 +27,10 @@
     TOKEN_EXPIRED: 'Oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.',
     USER_NOT_FOUND: 'Oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.',
     INVALID_REFRESH_TOKEN: 'Oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.',
+    RESET_TOKEN_INVALID: 'Şifre belirleme bağlantısı geçersiz, kullanılmış veya süresi dolmuş. Giriş ekranından yeni bir bağlantı isteyin.',
+    WEAK_PASSWORD: 'Şifre en az 6 karakter olmalı.',
+    SERVICE_UNAVAILABLE: 'Giriş servisine şu an ulaşılamıyor. Biraz sonra tekrar deneyin.',
+    MAIL_NOT_CONFIGURED: 'E-posta gönderimi yapılandırılmamış. Yöneticinizle görüşün.',
   };
   // Refresh failures that mean the session can no longer be used.
   const SESSION_ENDED = new Set(['TOKEN_EXPIRED', 'USER_DISABLED', 'USER_NOT_FOUND', 'INVALID_REFRESH_TOKEN', 'INVALID_GRANT_TYPE', 'MISSING_REFRESH_TOKEN', 'PROJECT_NUMBER_MISMATCH']);
@@ -40,17 +47,46 @@
     return String(raw).split(/[\s:]/)[0] || 'UNKNOWN';
   }
 
-  function loadSession() {
+  function loadSession(key) {
     try {
-      const s = JSON.parse(localStorage.getItem(SESSION_KEY));
+      const s = JSON.parse(localStorage.getItem(key));
       if (s && s.refreshToken && s.email) return s;
     } catch (e) { /* ignore */ }
     return null;
   }
 
-  function createAuth(cfg) {
+  // Endpoint calls of each backend. Responses use Firebase's field names.
+  function firebaseBackend(cfg) {
     const apiKey = encodeURIComponent(cfg.apiKey);
-    let session = loadSession();
+    return {
+      sessionKey: FIREBASE_SESSION_KEY,
+      supportsReset: false,
+      login: (post, email, password) => post(`${IDENTITY_URL}:signInWithPassword?key=${apiKey}`, { email, password, returnSecureToken: true }),
+      refresh: async (post, refreshToken) => {
+        const r = await post(`${TOKEN_URL}?key=${apiKey}`, { grant_type: 'refresh_token', refresh_token: refreshToken }, true);
+        return { idToken: r.id_token, refreshToken: r.refresh_token, expiresIn: r.expires_in };
+      },
+      resetRequest: (post, email) => post(`${IDENTITY_URL}:sendOobCode?key=${apiKey}`, { requestType: 'PASSWORD_RESET', email }),
+      resetConfirm: () => { throw new AuthError('UNSUPPORTED', 'Desteklenmiyor.'); },
+    };
+  }
+
+  function azureBackend(cfg) {
+    const base = String(cfg.apiUrl).replace(/\/+$/, '');
+    return {
+      sessionKey: AZURE_SESSION_KEY,
+      supportsReset: true,
+      login: (post, email, password) => post(`${base}/auth/login`, { email, password }),
+      refresh: (post, refreshToken) => post(`${base}/auth/refresh`, { refreshToken }),
+      resetRequest: (post, email) => post(`${base}/auth/reset-request`, { email }),
+      resetConfirm: (post, token, password) => post(`${base}/auth/reset-confirm`, { token, password }),
+    };
+  }
+
+  function createAuth(cfg) {
+    const backend = cfg.apiUrl ? azureBackend(cfg) : firebaseBackend(cfg);
+    const SESSION_KEY = backend.sessionKey;
+    let session = loadSession(SESSION_KEY);
     let refreshing = null;
     let lastRefreshAt = 0;
     const listeners = new Set();
@@ -99,8 +135,8 @@
       if (!session) throw new AuthError('signed-out', 'Oturum açılmamış.');
       if (!refreshing) {
         const current = session;
-        refreshing = post(`${TOKEN_URL}?key=${apiKey}`, { grant_type: 'refresh_token', refresh_token: current.refreshToken }, true)
-          .then((r) => { if (session === current) setTokens(r.id_token, r.refresh_token, r.expires_in); })
+        refreshing = backend.refresh(post, current.refreshToken)
+          .then((r) => { if (session === current) setTokens(r.idToken, r.refreshToken, r.expiresIn); })
           .catch((err) => {
             if (SESSION_ENDED.has(err.code) && session === current) end(err.message);
             throw err;
@@ -110,24 +146,36 @@
       await refreshing;
     }
 
+    function start(r, email) {
+      session = { uid: r.localId, email: String(r.email || email).trim().toLowerCase() };
+      setTokens(r.idToken, r.refreshToken, r.expiresIn);
+      return session;
+    }
+
     return {
       get session() { return session; },
       get email() { return session ? session.email : ''; },
+      sessionKey: SESSION_KEY,
+      supportsReset: backend.supportsReset,
 
       async signIn(email, password) {
-        const r = await post(`${IDENTITY_URL}:signInWithPassword?key=${apiKey}`, { email: String(email).trim(), password, returnSecureToken: true });
-        session = { uid: r.localId, email: String(r.email || email).trim().toLowerCase() };
-        setTokens(r.idToken, r.refreshToken, r.expiresIn);
-        return session;
+        const r = await backend.login(post, String(email).trim(), password);
+        return start(r, email);
       },
 
       async sendPasswordReset(email) {
         try {
-          await post(`${IDENTITY_URL}:sendOobCode?key=${apiKey}`, { requestType: 'PASSWORD_RESET', email: String(email).trim() });
+          await backend.resetRequest(post, String(email).trim());
         } catch (err) {
           // Don't reveal whether an address has an account.
           if (err.code !== 'EMAIL_NOT_FOUND') throw err;
         }
+      },
+
+      // Sets a new password with the token from the e-mailed link and signs in.
+      async confirmPasswordReset(token, password) {
+        const r = await backend.resetConfirm(post, token, password);
+        return start(r, r.email);
       },
 
       // Returns a valid ID token, refreshing it when it is about to expire.
@@ -148,5 +196,5 @@
     };
   }
 
-  window.TaskAuth = { createAuth, AuthError, SESSION_KEY };
+  window.TaskAuth = { createAuth, AuthError, SESSION_KEY: FIREBASE_SESSION_KEY, AZURE_SESSION_KEY };
 })();

@@ -85,6 +85,25 @@
       <button type="submit" class="btn btn-primary login-submit"><span class="spinner" aria-hidden="true" hidden></span><span class="login-submit-label">Giriş yap</span></button>
       <button type="button" id="btn-forgot" class="btn btn-link login-forgot">Şifremi unuttum</button>
     </form>
+    <form id="reset-form" class="login-card" novalidate aria-labelledby="reset-title" hidden>
+      <div class="login-brand">
+        <span class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-logo"/></svg></span>
+        <span class="login-app-name">Ekip Görev Takibi</span>
+      </div>
+      <h2 id="reset-title" class="login-title">Yeni şifre belirle</h2>
+      <p class="login-subtitle">Hesabınız için yeni bir şifre belirleyin (en az 6 karakter).</p>
+      <div id="reset-message" class="login-message" role="alert" hidden></div>
+      <label class="field">
+        <span class="field-label">Yeni şifre</span>
+        <input type="password" name="password" class="input" autocomplete="new-password" minlength="6" required>
+      </label>
+      <label class="field">
+        <span class="field-label">Yeni şifre (tekrar)</span>
+        <input type="password" name="password2" class="input" autocomplete="new-password" minlength="6" required>
+      </label>
+      <button type="submit" class="btn btn-primary login-submit"><span class="spinner" aria-hidden="true" hidden></span><span class="login-submit-label">Şifreyi kaydet</span></button>
+      <button type="button" id="btn-reset-cancel" class="btn btn-link login-forgot">Giriş ekranına dön</button>
+    </form>
   </div>
 
   <div class="app-shell">
