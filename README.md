@@ -24,6 +24,7 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 - **Tarih uyarıları** (yalnızca tamamlanmamış görevler için):
   - 🔴 Kırmızı: Tamamlanma tarihine **3 günden az** kaldı veya tarih **geçti**
   - 🟡 Sarı: Tamamlanma tarihine **1 haftadan az** kaldı
+- **Gecikme maili:** Her gün saat **10:00**'da (Türkiye saati) her görev sahibine, tamamlanmamış ve tarihi **geçmiş** görevleri ile **bugün dolan** görevlerini listeleyen tek bir mail gider. Tabloda görev adı (tıklanınca görev detayı açılır), tamamlanma tarihi ve kaç gün geciktiği yer alır; en çok geciken üstte, bugün dolanlar ("Bugün doluyor") en altta. Böyle görevi olmayana mail gitmez. Ayrıntılar: [Gecikme maili](#gecikme-maili).
 - **Filtreleme ve sıralama:** Alan/Sahip/Durum filtrelerinde **birden fazla değer** işaretlenebilir (aynı filtrede seçilenlerden herhangi biri, farklı filtreler birlikte uygulanır; hiçbiri seçili değilse "Tümü"). Metin arama ve sütun başlığına tıklayarak sıralama. Board'da sütunlar zaten durumları gösterdiği için Durum filtresi ve gösterilen/açık/tamamlanan sayaçları gizlenir (listede seçilen Durum filtresi board'da uygulanmaz, listeye dönünce korunur); kritik/yaklaşan etiketleri kısaltılmış hâliyle filtrelerin sağında yer alır.
 - **Kritik / yaklaşan kısayolu:** Filtrelerin altındaki **kritik** (kırmızı) veya **yaklaşan** (sarı) etiketine tıklayınca yalnızca o gruptaki açık görevler gösterilir; diğer filtrelerle birlikte çalışır. Tekrar tıklamak veya "Filtreleri temizle" filtreyi kaldırır.
 - **Timesheet (zaman girişi):** Kullanıcılar bir göreve harcadıkları süreyi girer.
@@ -102,11 +103,13 @@ Azure Function App  task-manager-notify-wf3n2h
    ├─ /api/db/<yol>.json      Firebase REST ile uyumlu veri API'si (GET/PUT/PATCH/DELETE, sorgular) + kurallar
    ├─ /api/auth/*             giriş, oturum yenileme, şifre belirleme
    ├─ /api/assignment-notify  atama maili
+   ├─ overdueDigest           her gün 10:00 (TR) gecikme maili
    └─ dailyBackup             her gece 01:30 (UTC) yedek
    ▼
 Depolama hesabı  taskmgrdatawf3n2h
    ├─ data/db.json            tüm veriler (ekler hariç) – eşzamanlı yazmalar ETag ile korunur
    ├─ data/auth.json          şifre özetleri (scrypt), oturum sürümleri, şifre belirleme bağlantıları
+   ├─ data/jobs.json          gecikme maili kayıtları (kime hangi gün gönderildi)
    ├─ data/files/<görev>/<dosya>/<parça>   ek parçaları
    └─ backups/                günlük db/auth kopyaları (30 gün saklanır)
 ```
@@ -202,6 +205,22 @@ Mail üç servisten biriyle gönderilir: `ACS_CONNECTION_STRING` varsa **Azure C
 | Önkoşul | Gmail'de 2 adımlı doğrulama + uygulama şifresi | Abonelikte `Microsoft.Communication` kaydı (abonelik yöneticisi), sonra `api/setup-acs.ps1` | DNS ile domain doğrulama |
 
 Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama atama mailini 1, 5, 10 ve 15'er dakika arayla (toplam yaklaşık 1,5 saat) yeniden dener.
+
+### Gecikme maili
+
+`overdueDigest` zamanlayıcısı her gün **07:00 UTC = 10:00 Türkiye saati** (hafta sonu dahil) çalışır.
+
+- **Seçim:** Durumu `Tamamlandı` olmayan, Sahibi bir kullanıcı hesabına karşılık gelen ve tamamlanma tarihi **dün veya daha önce** (gecikmiş) ya da **bugün** olan görevler. Tarihi boş, sahibi boş veya listede olmayan görevler dahil edilmez. "Bugün" İstanbul saatine göre hesaplanır.
+- **Mail:** Kişi başına tek mail; konu `Geciken görevleriniz: N görev · M görev bugün doluyor` (yalnızca bugün dolan varsa `Bugün dolan görevleriniz: M görev`). Görev bağlantıları `APP_URL?gorev=<No>` ile görevi açar.
+- **Tekrar gönderim yok:** Gönderilen kişi `data/jobs.json`'a o günün tarihiyle yazılır; aynı gün ikinci çalıştırma (ör. yeniden deneme) aynı kişiye tekrar göndermez. Gönderimi başarısız olan kişi kaydedilmez, bir sonraki çalıştırmada yeniden denenir. `MAIL_REDIRECT_TO` doluysa tüm gecikme mailleri de o adrese gider.
+- **Elle çalıştırma / önizleme** (`api` klasöründe, `DATA_CONNECTION` ayarlıyken). Elle gönderim günün kaydını değiştirmez; saat 10:00 gönderimi yine yapılır.
+
+```powershell
+node tools/overdue.js --dry-run                        # bugün kime hangi görevler gidecek (göndermez)
+$env:SMTP_USER='…'; $env:SMTP_PASS='…'; $env:MAIL_FROM='…'
+node tools/overdue.js --to kisi@logosoft.com.tr        # yalnızca bu kişinin mailini şimdi gönderir
+$env:MAIL_REDIRECT_TO='murate@logosoft.com.tr'         # (ek olarak) maili kişi yerine bu adrese gönderir – önizleme
+```
 
 ## Yerel kullanım
 

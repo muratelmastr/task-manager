@@ -202,4 +202,41 @@ ${button(link, 'Yeni şifre belirle')}`);
   return { subject, html, text };
 }
 
-module.exports = { mailSettings, sendMail, buildAssignmentMail, buildResetMail, acsHeaders, uuidFrom, fullName, MailError };
+// tasks: [{ no, gorev, tamamlanmaTarihi, days }] – days > 0 overdue, 0 due today (sorted by caller).
+function buildOverdueMail({ user, tasks, appUrl, redirected }) {
+  const late = tasks.filter((t) => t.days > 0).length;
+  const today = tasks.length - late;
+  const subject = late
+    ? `Geciken görevleriniz: ${late} görev${today ? ` · ${today} görev bugün doluyor` : ''}`
+    : `Bugün dolan görevleriniz: ${today} görev`;
+  const name = user.ad || fullName(user);
+  const linkOf = (t) => (t.no ? `${appUrl}?gorev=${t.no}` : appUrl);
+  const title = (t) => `${t.no ? `#${t.no} ` : ''}${String(t.gorev || '').trim()}`;
+  const dayLabel = (t) => (t.days > 0 ? `${t.days} gün` : 'Bugün doluyor');
+  const intro = late
+    ? `Tamamlanma tarihi geçmiş ${late} göreviniz var${today ? `; ${today} görevin de tarihi bugün doluyor` : ''}.`
+    : `Tamamlanma tarihi bugün dolan ${today} göreviniz var.`;
+  const note = redirected
+    ? `<p style="margin:0 0 16px;padding:10px 12px;background:#fff8e6;border:1px solid #f5d48a;border-radius:6px;font-size:13px;color:#7a5200">Test modu: bu mail asıl alıcı ${esc(fullName(user))} &lt;${esc(user.email)}&gt; yerine size yönlendirildi.</p>`
+    : '';
+  const th = 'padding:8px 10px;text-align:left;font-size:12px;font-weight:600;color:#6b7280;background:#f5f6f8;border-bottom:1px solid #e5e7eb';
+  const td = 'padding:9px 10px;border-bottom:1px solid #f0f1f3;vertical-align:top';
+  const rows = tasks.map((t) => `<tr><td style="${td}"><a href="${esc(linkOf(t))}" style="color:#2563eb;text-decoration:none;font-weight:600">${esc(title(t))}</a></td><td style="${td};white-space:nowrap">${esc(formatDate(t.tamamlanmaTarihi))}</td><td style="${td};white-space:nowrap;text-align:right;font-weight:700;color:${t.days > 0 ? '#b91c1c' : '#b45309'}">${esc(dayLabel(t))}</td></tr>`).join('');
+  const html = layout(`<p style="margin:0 0 8px;font-size:15px">Merhaba ${esc(name)},</p>
+<p style="margin:0 0 16px;font-size:15px">${esc(intro)} Görevi açmak için adına tıklayın.</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr><th style="${th}">Görev</th><th style="${th}">Tamamlanma Tarihi</th><th style="${th};text-align:right">Gecikme</th></tr></thead><tbody>${rows}</tbody></table>
+${button(appUrl, 'Uygulamayı aç')}`, note);
+  const text = [
+    redirected ? `[Test modu: asıl alıcı ${fullName(user)} <${user.email}>]\n` : '',
+    `Merhaba ${name},`,
+    '',
+    intro,
+    '',
+    ...tasks.map((t) => `- ${title(t)} | ${formatDate(t.tamamlanmaTarihi)} | ${dayLabel(t)}\n  ${linkOf(t)}`),
+    '',
+    `Uygulama: ${appUrl}`,
+  ].join('\n');
+  return { subject, html, text };
+}
+
+module.exports = { mailSettings, sendMail, buildAssignmentMail, buildResetMail, buildOverdueMail, acsHeaders, uuidFrom, fullName, MailError };

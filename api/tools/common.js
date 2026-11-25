@@ -25,7 +25,7 @@ function storage() {
     process.exit(2);
   }
   const adapter = blobAdapter(process.env.DATA_CONNECTION);
-  return { adapter, db: jsonDoc(adapter, 'db.json'), auth: jsonDoc(adapter, 'auth.json') };
+  return { adapter, db: jsonDoc(adapter, 'db.json'), auth: jsonDoc(adapter, 'auth.json'), jobs: jsonDoc(adapter, 'jobs.json') };
 }
 
 // Splits a Firebase tree into the db.json tree and the attachment chunks.
