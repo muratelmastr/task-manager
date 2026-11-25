@@ -51,6 +51,9 @@
         "ekSayisi": {
           ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 1000"
         },
+        "yorumSayisi": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 100000"
+        },
         "$other": {
           ".validate": false
         }
@@ -155,6 +158,37 @@
         "$other": {
           ".validate": false
         }
+      }
+    },
+    "comments": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && !newData.exists() && !newData.parent().parent().child('tasks/' + $key).exists()",
+        "$commentId": {
+          ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && ((!data.exists() && newData.child('yazan').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val() && newData.parent().parent().parent().child('tasks/' + $key).exists()) || (data.exists() && data.child('yazan').val() === root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E') + '/kullaniciAdi').val() && (!newData.exists() || newData.child('yazan').val() === data.child('yazan').val())))",
+          ".validate": "$commentId.length <= 64 && newData.hasChildren(['yazan', 'metin', 'tarih']) && (!data.exists() || newData.child('tarih').val() === data.child('tarih').val())",
+          "yazan": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 120"
+          },
+          "metin": {
+            ".validate": "newData.isString() && newData.val().trim().length >= 1 && newData.val().length <= 300"
+          },
+          "tarih": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 40"
+          },
+          "duzenlenme": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 40"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "commentMails": {
+      ".read": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
+      "$key": {
+        ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists() && !newData.exists() && !newData.parent().parent().child('tasks/' + $key).exists()"
       }
     },
     "timesheets": {

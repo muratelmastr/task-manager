@@ -1351,6 +1351,32 @@ body.is-dragging .board-column { border-color: var(--color-border-strong); borde
 .progress-bar { display: block; height: 100%; background: var(--color-primary); border-radius: inherit; transition: width var(--duration) ease; }
 .submit-label { line-height: 1; }
 
+/* Comments */
+.comments { margin-top: var(--space-5); }
+.comment-compose { margin-top: var(--space-2); }
+.mention-wrap { position: relative; }
+.comment-input { display: block; width: 100%; height: auto; min-height: 60px; padding: 8px var(--space-3); font: inherit; line-height: 1.45; resize: vertical; }
+.comment-compose-foot { display: flex; align-items: center; gap: var(--space-2); margin-top: 6px; }
+.comment-compose-foot .spacer { flex: 1; }
+.comment-chars { font-size: var(--font-xs); font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+.comment-chars.is-near { font-weight: 600; color: var(--color-warning-text); }
+.comment-hint { flex: 1; font-size: var(--font-xs); color: var(--color-text-muted); }
+.comment-list { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.comment-list:empty { display: none; }
+.comment { padding: 10px 12px; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-md); transition: background var(--duration) ease, border-color var(--duration) ease; }
+.comment.is-focus { background: var(--color-primary-soft); border-color: var(--color-primary-border); }
+.comment-head { display: flex; align-items: center; gap: 6px; min-height: 26px; }
+.comment-author { min-width: 0; overflow: hidden; font-size: var(--font-sm); text-overflow: ellipsis; white-space: nowrap; }
+.comment-meta { font-size: var(--font-xs); color: var(--color-text-muted); white-space: nowrap; }
+.comment-actions { display: inline-flex; gap: 2px; margin-left: auto; opacity: .55; transition: opacity var(--duration) ease; }
+.comment:hover .comment-actions, .comment-actions:focus-within { opacity: 1; }
+.comment-text { margin: 4px 0 0; font-size: var(--font-md); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-edit { margin-top: 6px; }
+.mention { font-weight: 600; color: var(--color-primary-hover); }
+.mention-list { max-height: 240px; }
+.mention-option .mention-name { font-weight: 500; }
+.mention-option .mention-user { margin-left: auto; font-size: var(--font-xs); color: var(--color-text-muted); }
+
 /* Settings */
 .hint {
   display: flex;

@@ -1,12 +1,14 @@
 // Firebase Realtime Database REST client – no SDK.
 // With cfg.getToken (Firebase Authentication) every request carries the user's ID token.
-// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, oncelik?, tamamlanmaTarihi, completedAt, createdAt, updatedAt, createdBy?, no?, aciklamaVar?, ekSayisi? }
+// Data layout:  /tasks/{key} = { id, gorev, alan, sahip, durum, oncelik?, tamamlanmaTarihi, completedAt, createdAt, updatedAt, createdBy?, no?, aciklamaVar?, ekSayisi?, yorumSayisi? }
 //               /lists/{alan|sahip|durum} = values separated by "\n"
 //               /users/{encoded e-mail} = { ad, soyad, kullaniciAdi, email, sira } (read-only, maintained in the console)
 //               /taskNumbers/{no} = task key (create-only registry that makes task numbers unique)
 //               /details/{key} = { aciklama (sanitized HTML), updatedAt, updatedBy }
 //               /attachments/{key}/{fileId} = { ad, boyut, tur, yukleyen, yuklenmeTarihi, parca }
 //               /files/{key}/{fileId} = { yukleyen, p: { 0: base64, 1: base64, ... } }
+//               /comments/{key}/{commentId} = { yazan, metin (≤ 300), tarih, duzenlenme? } (Azure API only)
+//               /commentMails/{key}/{commentId} = { <kullaniciAdi>: mailed at } (written by the API)
 (() => {
   'use strict';
 
