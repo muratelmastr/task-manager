@@ -24,12 +24,15 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function createStore(cfg) {
+    // Azure (cfg.apiUrl): <apiUrl>/db/<path>.json with the token in the Authorization header.
+    // Firebase (cfg.databaseUrl): <databaseUrl>/<path>.json?auth=<token>.
+    const azure = !!cfg.apiUrl;
     let base;
     try {
-      const u = new URL(cfg.databaseUrl);
-      base = `${u.origin}`;
+      const u = new URL(azure ? cfg.apiUrl : cfg.databaseUrl);
+      base = azure ? `${u.origin}${u.pathname.replace(/\/+$/, '')}/db` : `${u.origin}`;
     } catch (e) {
-      throw new CloudError(0, `Geçersiz veritabanı adresi: ${cfg.databaseUrl}`);
+      throw new CloudError(0, `Geçersiz veritabanı adresi: ${azure ? cfg.apiUrl : cfg.databaseUrl}`);
     }
 
     async function request(method, path, body, query = '') {
@@ -38,17 +41,19 @@
       for (let attempt = 0; ; attempt += 1) {
         let res;
         try {
-          const params = [token ? `auth=${encodeURIComponent(token)}` : '', query].filter(Boolean).join('&');
+          const params = [token && !azure ? `auth=${encodeURIComponent(token)}` : '', query].filter(Boolean).join('&');
+          const headers = body === undefined ? {} : { 'Content-Type': 'application/json' };
+          if (token && azure) headers.Authorization = `Bearer ${token}`;
           res = await fetch(`${base}/${path}.json${params ? `?${params}` : ''}`, {
             method,
-            headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+            headers,
             body: body === undefined ? undefined : JSON.stringify(body),
             cache: 'no-store',
           });
         } catch (err) {
           throw new CloudError(0, 'Sunucuya ulaşılamadı (internet bağlantısını kontrol edin).', 'network');
         }
-        if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < 4) {
+        if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && attempt < 4) {
           await sleep(Math.min(Number(res.headers.get('Retry-After')) || 2 ** attempt, 10) * 1000);
           continue;
         }

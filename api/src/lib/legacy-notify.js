@@ -1,5 +1,8 @@
 'use strict';
 
+// TEMPORARY (until every browser uses the Azure API): assignment mails requested by the old
+// Firebase-based client, verified against Firebase. Remove after the switch to Azure.
+
 // Görev atama maili: uygulama, bir görevin Sahip'ini değiştiren kullanıcının Firebase ID token'ıyla
 // bu fonksiyonu çağırır. Token doğrulanır, görev ve kullanıcılar çağıranın yetkisiyle okunur
 // (veritabanı kuralları geçerlidir) ve mail gönderilir. Aynı atama için ikinci mail gitmez.

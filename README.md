@@ -41,46 +41,44 @@ Uygulamanın çalışma modu `config.js` dosyasındaki değerlere göre belirlen
 
 | `config.js` | Mod |
 |---|---|
-| `databaseUrl` + `apiKey` | ☁ Ortak veritabanı, **kullanıcı girişi ile** (önerilen) |
-| yalnızca `databaseUrl` | ☁ Ortak veritabanı, girişsiz (eski kurulumlar; yeni kurallarla çalışmaz) |
+| `apiUrl` | ☁ Ortak veritabanı (**Azure**), kullanıcı girişi ile – **şu anki kurulum** |
+| `databaseUrl` + `apiKey` | ☁ Ortak veritabanı (Firebase), kullanıcı girişi ile – yalnızca geri dönüş için |
+| yalnızca `databaseUrl` | ☁ Firebase, girişsiz (eski kurulumlar) |
 | boş | 💻 Yerel mod (yalnızca bu tarayıcı) |
 
-### ☁ Ortak veritabanı modu (kullanıcı girişi ile)
+### ☁ Ortak veritabanı modu (Azure, kullanıcı girişi ile)
 
-Veriler ekibin **Firebase Realtime Database** veritabanında saklanır; giriş **Firebase Authentication** (e-posta/şifre) ile yapılır.
+Veriler ve kullanıcı girişi **Azure** üzerindedir (bkz. [Azure kurulumu](#azure-kurulumu)). Sayfa GitHub Pages'te kalır.
 
-- **Giriş:** Sayfa açıldığında giriş ekranı gelir; her ekip üyesi kendi **e-posta adresi ve şifresi** ile giriş yapar. Oturum, **Çıkış yap** denilene kadar açık kalır.
-  - **Şifremi unuttum:** E-posta adresine şifre sıfırlama bağlantısı gönderilir.
-  - **Şifre değiştir:** Sol menünün altındaki profil menüsünden kendi adresinize şifre değiştirme bağlantısı gönderilir.
+- **Giriş:** Sayfa açıldığında giriş ekranı gelir; her ekip üyesi kendi **e-posta adresi ve şifresi** ile giriş yapar. Oturum, **Çıkış yap** denilene kadar açık kalır. Üst üste 5 hatalı denemede hesap 15 dakika kilitlenir.
+  - **Şifremi unuttum:** E-posta adresine **Yeni şifre belirle** bağlantısı gönderilir (1 saat geçerli, tek kullanımlık). Bağlantı uygulamayı açar ve yeni şifre (en az 6 karakter) orada belirlenir; şifre değişince diğer cihazlardaki oturumlar kapanır.
+  - **Şifre değiştir:** Sol menünün altındaki profil menüsünden kendi adresinize aynı bağlantı gönderilir.
   - **Çıkış yap:** Oturum ve tarayıcıdaki görev kopyası silinir.
-- **Erişim:** Yalnızca veritabanındaki `/users` listesinde e-postası bulunan kullanıcılar veriyi görebilir ve değiştirebilir. Hesabı olup listede olmayan biri giriş yaparsa "erişimi yok" uyarısı alır.
+  - **Firebase'den taşınan hesaplar:** Herkes Azure'a ilk girişte **eski şifresiyle** girer; şifre bir kez Firebase'e doğrulatılır ve Azure'a (scrypt özeti olarak) taşınır. Sonraki girişler yalnızca Azure'u kullanır.
+- **Erişim:** Yalnızca `/users` listesinde e-postası bulunan kullanıcılar giriş yapabilir ve veriyi görebilir. Listeden çıkarılan biri bir sonraki eşitlemede "erişimi yok" uyarısıyla oturumdan çıkarılır.
 - **Sahip listesi = kullanıcılar:** Sahip değerleri `/users` listesinden (sıra alanına göre) otomatik oluşur; Ayarlar'da salt okunurdur. Kullanıcı eklemeden önceki isimler ("Murat E.", "Murat Elmas" gibi) tek bir kullanıcıya açıkça uyuyorsa otomatik olarak kullanıcı adına çevrilir.
 - **Oluşturan:** Yeni görevlerde görevi oluşturan kullanıcı kaydedilir ve görev penceresinde "Oluşturan" olarak gösterilir (sonradan değiştirilemez). Liste ve kartlarda gösterilmez.
 - **Benim görevlerim:** Araç çubuğundaki kişi ikonlu düğme, Sahip filtresini giriş yapan kullanıcıya ayarlar; tekrar tıklayınca kaldırır.
-- **Atama maili:** Bir görev bir ekip üyesine atandığında (sahibi olarak yeni görev oluşturulduğunda veya Sahip değiştirildiğinde) o kişiye mail gider. Mailde görev no, başlık, Alan, Öncelik, Durum, Tamamlanma Tarihi, atayan kişi ve görevi doğrudan açan **Görevi aç** bağlantısı (`?gorev=No`) bulunur. Kişi kendini atarsa veya görev Sahip değişmeden kaydedilirse mail gitmez. Çevrimdışıyken yapılan atamalar bağlantı gelince bildirilir. Ayrıntılar: [Atama maili kurulumu](#atama-maili-kurulumu-azure-functions).
+- **Atama maili:** Bir görev bir ekip üyesine atandığında (sahibi olarak yeni görev oluşturulduğunda veya Sahip değiştirildiğinde) o kişiye mail gider. Mailde görev no, başlık, Alan, Öncelik, Durum, Tamamlanma Tarihi, atayan kişi ve görevi doğrudan açan **Görevi aç** bağlantısı (`?gorev=No`) bulunur. Kişi kendini atarsa veya görev Sahip değişmeden kaydedilirse mail gitmez. Çevrimdışıyken yapılan atamalar bağlantı gelince bildirilir.
 - Her değişiklik **otomatik olarak** kaydedilir; tüm ekip aynı listeyi görür. Başkalarının değişiklikleri 30 saniyede bir ve sayfaya dönüldüğünde çekilir.
 - Bağlantı koparsa değişiklikler tarayıcıda bekletilir ("Çevrimdışı") ve bağlantı gelince gönderilir. Sol menünün altında eşitleme durumu görünür.
-- Veritabanı kuralları (`database.rules.json`) ayrıca şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin veya görev numarasının değiştirilmesi, aynı numaranın iki göreve verilmesi, başkasının yüklediği ekin silinmesi, başkası adına zaman girişi yapılması, başkasının veya 30 günden eski girişlerin değiştirilmesi, 0,25 adımına uymayan ya da 24 saati aşan süreler ve hatalı biçimli kayıtlar.
+- **Sunucu kuralları** (`api/src/lib/rules.js`, `database.rules.json` ile aynı) şunları engeller: tüm verinin tek seferde silinmesi, **Tamamlandı** görevlerin silinmesi, listelerin silinmesi, "Oluşturan" bilgisinin veya görev numarasının değiştirilmesi, aynı numaranın iki göreve verilmesi, başkasının yüklediği ekin silinmesi, başkası adına zaman girişi yapılması, başkasının veya 30 günden eski girişlerin değiştirilmesi, 0,25 adımına uymayan ya da 24 saati aşan süreler ve hatalı biçimli kayıtlar. Birden çok yolu değiştiren istekler bütün olarak uygulanır ya da hiç uygulanmaz.
 
 > Zaman girişlerinde `gorevNo`, `gorevAdi` ve `alan` görevin o anki kopyasıdır; görev sonradan değişse de rapor okunabilir kalır. Günlük 24 saat toplam sınırı uygulama tarafından denetlenir.
 
-Veri yapısı:
+Veri yapısı (Firebase'deki ile aynı):
 
 | Yol | İçerik |
 |---|---|
 | `/tasks/{id}` | `id, gorev, alan, sahip, durum, oncelik, tamamlanmaTarihi (YYYY-MM-DD), completedAt, createdAt, updatedAt, createdBy, no, aciklamaVar, ekSayisi` |
 | `/lists/{alan\|sahip\|durum}` | Değerler, her satırda bir değer olacak şekilde metin |
-| `/users/{e-posta anahtarı}` | `ad, soyad, kullaniciAdi, email, sira` – yalnızca Firebase konsolundan düzenlenir |
+| `/users/{e-posta anahtarı}` | `ad, soyad, kullaniciAdi, email, sira` – `api/tools/users.js` ile düzenlenir |
 | `/taskNumbers/{no}` | Numarayı alan görevin anahtarı. Yalnızca bir kez yazılabilir; numaraların benzersiz olmasını sağlar. |
 | `/details/{id}` | `aciklama` (temizlenmiş HTML, en fazla 100.000 karakter), `updatedAt`, `updatedBy` – yalnızca detay açılınca okunur |
 | `/attachments/{id}/{dosyaId}` | `ad, boyut, tur, yukleyen, yuklenmeTarihi, parca` |
-| `/files/{id}/{dosyaId}` | `yukleyen`, `p` – dosyanın 384 KB'lık parçaları (base64) |
-| `/timesheets/{girişId}` | `gorevId, kullanici, tarih (YYYY-MM-DD), gun, saat, not, gorevNo, gorevAdi, alan, createdAt, updatedAt` – `tarih` ve `gorevId` üzerinde indeksli; yalnızca seçili dönem veya görev için sorgulanır |
-| `/assignmentMails/{id}` | `sahip, at` – görev için en son atama maili gönderilen kişi (aynı atamaya ikinci mail gitmemesi için; atama maili fonksiyonu yazar) |
-
-> Açıklama ve dosyalar görev kaydından ayrı tutulur; liste her 30 saniyede yenilenirken yalnızca küçük görev kayıtları indirilir. Görev kaydındaki `aciklamaVar` / `ekSayisi` alanları kart ve satırdaki simgeler içindir.
-
-> **Kota:** Ücretsiz planda veritabanı toplam 1 GB'tır; base64 nedeniyle dosyalar yaklaşık 1,33 kat yer kaplar (≈ 750 MB dosya). Kullanımı Firebase konsolunda **Realtime Database → Usage** ekranından izleyebilirsiniz.
+| `/files/{id}/{dosyaId}` | `yukleyen`, `p` – dosyanın 384 KB'lık parçaları (base64; Azure'da her parça ayrı blob) |
+| `/timesheets/{girişId}` | `gorevId, kullanici, tarih (YYYY-MM-DD), gun, saat, not, gorevNo, gorevAdi, alan, createdAt, updatedAt` – yalnızca seçili dönem veya görev için sorgulanır |
+| `/assignmentMails/{id}` | `sahip, at` – görev için en son atama maili gönderilen kişi (aynı atamaya ikinci mail gitmemesi için) |
 
 > `oncelik` alanı yalnızca **Orta** dışındaki değerler için yazılır (`Yüksek`, `Düşük` veya boş = belirtilmemiş); alan yoksa öncelik **Orta** kabul edilir. `createdBy` giriş özelliğinden önce oluşturulan görevlerde yoktur.
 
@@ -90,104 +88,120 @@ Veri yapısı:
 
 ### 💻 Yerel mod
 
-`databaseUrl` boşsa veriler yalnızca kullandığınız tarayıcının `localStorage` alanında saklanır (sunucuya gönderilmez, giriş yoktur). Farklı tarayıcıda görünmez ve tarayıcı verileri temizlenirse kaybolur; bu modda **Yedek Al (JSON)** ile düzenli yedek alın.
+`config.js` boşsa veriler yalnızca kullandığınız tarayıcının `localStorage` alanında saklanır (sunucuya gönderilmez, giriş yoktur). Farklı tarayıcıda görünmez ve tarayıcı verileri temizlenirse kaybolur; bu modda **Yedek Al (JSON)** ile düzenli yedek alın.
 
-## Firebase kurulumu (bir kerelik, ücretsiz)
+## Azure kurulumu
 
-1. https://console.firebase.google.com → **Proje ekle** (ör. `ekip-gorev-takibi`). Google Analytics'i kapatabilirsiniz.
-2. **Realtime Database:** Sol menü **Derleme (Build) → Realtime Database → Veritabanı oluştur**
-   - Konum: **Belçika (europe-west1)**
-   - **Kilitli modda başlat** seçin.
-3. **Authentication:** **Derleme → Authentication → Başlayın → Sign-in method → E-posta/Şifre**'yi etkinleştirin.
-   - **Authentication → Settings → User actions** altında **Enable create (sign-up)** seçeneğini kapatın; böylece hesapları yalnızca siz oluşturabilirsiniz.
-4. **Kullanıcı hesapları:** **Authentication → Users → Add user** ile her ekip üyesi için e-posta ve şifre (en az 6 karakter) girin.
-5. **Kullanıcı listesi:** **Realtime Database → Veri** sekmesinde `users` düğümünü oluşturup **⋮ → JSON içe aktar** ile aşağıdaki biçimde bir dosya yükleyin:
+Tüm sunucu tarafı `api/` klasöründeki **Azure Functions** uygulamasıdır (Node.js). GitHub Pages yalnızca statik dosya sunar ve depo herkese açıktır; bu yüzden şifreler, anahtarlar ve kurallar sunucudadır.
 
-```json
-{
-  "murate@logosoft%2Ecom%2Etr": { "ad": "Murat", "soyad": "Elmas", "kullaniciAdi": "Murat", "email": "murate@logosoft.com.tr", "sira": 1 }
-}
+```
+GitHub Pages (index.html, app.js …)
+   │  HTTPS, Authorization: Bearer <oturum token'ı>
+   ▼
+Azure Function App  task-manager-notify-wf3n2h
+   ├─ /api/db/<yol>.json      Firebase REST ile uyumlu veri API'si (GET/PUT/PATCH/DELETE, sorgular) + kurallar
+   ├─ /api/auth/*             giriş, oturum yenileme, şifre belirleme
+   ├─ /api/assignment-notify  atama maili
+   └─ dailyBackup             her gece 01:30 (UTC) yedek
+   ▼
+Depolama hesabı  taskmgrdatawf3n2h
+   ├─ data/db.json            tüm veriler (ekler hariç) – eşzamanlı yazmalar ETag ile korunur
+   ├─ data/auth.json          şifre özetleri (scrypt), oturum sürümleri, şifre belirleme bağlantıları
+   ├─ data/files/<görev>/<dosya>/<parça>   ek parçaları
+   └─ backups/                günlük db/auth kopyaları (30 gün saklanır)
 ```
 
-   Yeni bir ekip üyesi için hem 4. adımdaki hesabı hem de buradaki kaydı ekleyin; ayrılan biri için ikisini de silin (veya hesabı devre dışı bırakın).
-6. **Kurallar:** **Kurallar (Rules)** sekmesine bu depodaki `database.rules.json` içeriğini yapıştırıp **Yayınla**'ya tıklayın.
-7. **config.js:** Veri sekmesindeki veritabanı adresini ve **Proje ayarları → Genel → Web API anahtarı** değerini yazın:
-
-```js
-window.TASK_MANAGER_CONFIG = {
-  databaseUrl: 'https://ekip-gorev-takibi-default-rtdb.europe-west1.firebasedatabase.app',
-  apiKey: 'AIza…',
-};
-```
-
-> Web API anahtarı **gizli değildir**; yalnızca Firebase projesini tanımlar. Verileri koruyan, giriş zorunluluğu ve veritabanı kurallarıdır. Şifreler bu depoda veya uygulama kodunda hiçbir zaman yer almaz.
-
-Değişikliği `main` dalına gönderdiğinizde GitHub Pages sayfası güncellenir. Ücretsiz Spark planı (1 GB depolama, aylık 10 GB indirme, 50.000 aylık aktif kullanıcıya kadar Authentication) bir ekip görev listesi için fazlasıyla yeterlidir; kredi kartı gerekmez.
-
-## Atama maili kurulumu (Azure Functions)
-
-GitHub Pages yalnızca statik dosya sunar ve depo herkese açıktır; mail servisinin anahtarı tarayıcı koduna konamaz. Bu yüzden mailleri `notify-function/` klasöründeki küçük bir **Azure Function** gönderir:
-
-1. Uygulama, görevi veritabanına kaydettikten sonra `config.js` içindeki `notifyUrl` adresine giriş yapan kullanıcının oturum token'ı ile `{ "task": "<görev id>" }` gönderir.
-2. Fonksiyon token'ı Firebase'e doğrulatır, görevi ve `/users` listesini **çağıranın yetkisiyle** okur (veritabanı kuralları geçerlidir), görevin sahibine mail atar ve `/assignmentMails/{id}` kaydını yazar. Aynı kişiye aynı görev için ikinci mail gitmez; kişi kendini atadıysa mail gitmez.
-3. Yalnızca `https://muratelmastr.github.io` adresinden gelen istekler kabul edilir (CORS); geçersiz oturumlar 401 alır.
-4. Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama 1, 5, 10 ve 15'er dakika arayla (toplam yaklaşık 1,5 saat) yeniden dener.
-
-Mail üç servisten biriyle gönderilir: `ACS_CONNECTION_STRING` ayarı varsa **Azure Communication Services**, yoksa `SMTP_USER`/`SMTP_PASS` varsa **SMTP (Gmail)**, ikisi de yoksa **Resend**.
-
-| | Gmail SMTP (şu an) | Azure Communication Services | Resend |
-|---|---|---|---|
-| Domain | Gerekmez – `mrtlms@gmail.com` adresinden gider | Gerekmez – Azure'un ücretsiz yönetilen domaini (`DoNotReply@….azurecomm.net`) | Doğrulanmış domain gerekir; yoksa yalnızca Resend hesabının sahibine gider |
-| Alıcı | Herkes | Herkes | Domain olmadan yalnızca hesap sahibi (`MAIL_REDIRECT_TO`) |
-| Sınır | Günde 500 mail | Dakikada 5, saatte 10 mail (abonelik başına) | Günde 100 mail (ücretsiz plan) |
-| Önkoşul | Gmail'de 2 adımlı doğrulama + uygulama şifresi | Abonelikte `Microsoft.Communication` kaydı (abonelik yöneticisi) | Domain doğrulama (DNS) |
-
-Mevcut kurulum:
-
-| | |
+| Kaynak (`rg-MURAT`, abonelik 14K Azure Subscription 2026 -LG, West Europe) | |
 |---|---|
-| Kaynak grubu | `rg-MURAT` (abonelik: 14K Azure Subscription 2026 -LG) |
-| Function App | `task-manager-notify-wf3n2h` (Flex Consumption, Node 24, West Europe) – depolama hesabı `taskmgrnotifywf3n2h` |
-| Uç nokta | `https://task-manager-notify-wf3n2h.azurewebsites.net/api/assignment-notify` |
-| Gönderim | Gmail SMTP, gönderen `Ekip Görev Takibi <mrtlms@gmail.com>`; yanıtlar görevi atayan kişiye gider |
+| Function App | `task-manager-notify-wf3n2h` (Flex Consumption, Node 24) – uç nokta `https://task-manager-notify-wf3n2h.azurewebsites.net/api` |
+| Veri depolama | `taskmgrdatawf3n2h` – silinen blob'lar ve kapsayıcılar **30 gün** geri alınabilir, sürüm geçmişi açık (eski sürümler 30 gün sonra silinir) |
+| Çalışma zamanı depolama | `taskmgrnotifywf3n2h` (Functions'ın kendi depolaması) |
 
-Function App ayarları (**Ortam değişkenleri**):
+CORS yalnızca `https://muratelmastr.github.io` adresine izin verir. Maliyet bu hacimde fiilen sıfırdır (Functions ücretsiz kotası + birkaç MB depolama).
+
+### Function App ayarları (Ortam değişkenleri)
 
 | Ayar | Değer |
 |---|---|
-| `SMTP_USER` / `SMTP_PASS` | Gmail adresi ve **uygulama şifresi** (boşluklar önemsizdir). Doluysa mailler SMTP ile gider. **Şifre depoya yazılmaz.** |
+| `DATA_CONNECTION` | Veri depolama hesabının bağlantı dizesi. **Depoya yazılmaz.** |
+| `JWT_SECRET` | Oturum token'larını imzalayan rastgele anahtar (değiştirilirse herkes yeniden giriş yapar). **Depoya yazılmaz.** |
+| `APP_URL` | `https://muratelmastr.github.io/task-manager/` (mail bağlantıları) |
+| `FIREBASE_API_KEY` | Geçiş dönemi: henüz Azure'a giriş yapmamış hesapların eski şifresini Firebase'e doğrulatmak için |
+| `FIREBASE_DB_URL` | Geçiş dönemi: eski (Firebase) sürümü açık kalan tarayıcıların atama maili isteği için |
+| `SMTP_USER` / `SMTP_PASS` | Mail gönderimi: Gmail adresi ve **uygulama şifresi**. **Şifre depoya yazılmaz.** |
 | `SMTP_HOST` / `SMTP_PORT` | *(isteğe bağlı)* Varsayılan `smtp.gmail.com` / `465` |
-| `ACS_CONNECTION_STRING` | *(isteğe bağlı)* Azure Communication Services bağlantı dizesi. Doluysa SMTP yerine ACS kullanılır. **Depoya yazılmaz.** |
-| `RESEND_API_KEY` | Resend API anahtarı (yalnızca gönderme yetkili; ACS ve SMTP yoksa kullanılır). **Depoya yazılmaz.** |
-| `FIREBASE_API_KEY` | `config.js` içindeki `apiKey` |
-| `FIREBASE_DB_URL` | `config.js` içindeki `databaseUrl` |
-| `APP_URL` | `https://muratelmastr.github.io/task-manager/` ("Görevi aç" bağlantısı) |
-| `MAIL_FROM` | Gönderen. Gmail: `Ekip Görev Takibi <mrtlms@gmail.com>` (adres SMTP hesabıyla aynı olmalı); ACS: `DoNotReply@….azurecomm.net`; Resend: `Ekip Görev Takibi <onboarding@resend.dev>` |
+| `ACS_CONNECTION_STRING` | *(isteğe bağlı)* Azure Communication Services; doluysa SMTP yerine kullanılır (`api/setup-acs.ps1`) |
+| `RESEND_API_KEY` | *(isteğe bağlı)* ACS ve SMTP yoksa Resend kullanılır |
+| `MAIL_FROM` | Gönderen, ör. `Ekip Görev Takibi <mrtlms@gmail.com>` (SMTP hesabıyla aynı adres olmalı) |
 | `MAIL_REDIRECT_TO` | *(isteğe bağlı)* Doluysa tüm mailler bu adrese gider ve konuda asıl alıcı yazar (test modu) |
 
-Gmail uygulama şifresini değiştirmek (https://myaccount.google.com/apppasswords adresinde yenisini oluşturup eskisini silin):
+Bir ayarı değiştirmek (ör. Gmail uygulama şifresi):
 
 ```powershell
 az functionapp config appsettings set -g rg-MURAT -n task-manager-notify-wf3n2h --settings SMTP_PASS=<yeni uygulama şifresi>
 ```
 
-> **Diğer servislere geçiş:** Abonelikte `Microsoft.Communication` kaydedilirse `notify-function` klasöründe `.\setup-acs.ps1` çalıştırılarak ACS'e geçilebilir (betik kaynakları `rg-MURAT` içinde oluşturur ve ayarları yazar). Kendi domaininiz olursa Resend'de doğrulayıp `MAIL_FROM` ayarını o domainden bir adresle değiştirin ve `SMTP_USER`, `SMTP_PASS`, `ACS_CONNECTION_STRING` ayarlarını silin.
+### Ekip üyeleri
 
-Resend anahtarını değiştirmek (yenisini oluşturup eskisini Resend'de silin):
+Araçlar yerel bilgisayarda, `api` klasöründe çalıştırılır (`npm install` sonrası). Bağlantı dizesi:
 
 ```powershell
-az functionapp config appsettings set -g rg-MURAT -n task-manager-notify-wf3n2h --settings RESEND_API_KEY=<yeni anahtar>
+$env:DATA_CONNECTION = az storage account show-connection-string -g rg-MURAT -n taskmgrdatawf3n2h --query connectionString -o tsv
+node tools/users.js list
+node tools/users.js add --email ayse@logosoft.com.tr --ad Ayşe --soyad Yılmaz --kullanici Ayse
+node tools/users.js remove --email ayse@logosoft.com.tr
 ```
 
-Fonksiyon kodunu güncelledikten sonra yeniden yükleme (`notify-function` klasöründe):
+Yeni üye giriş ekranındaki **Şifremi unuttum** ile şifresini belirler (veya `NEW_PASSWORD` ortam değişkeniyle `node tools/users.js set-password --email …`). Listeden çıkarılan üyenin görevleri ve zaman girişleri korunur.
+
+### Yedekleme ve geri yükleme
+
+- **Otomatik:** Her gece `backups/db-YYYY-MM-DD.json` ve `auth-…json` alınır (30 gün). Ayrıca `db.json`'un her değişikliği 30 gün boyunca sürüm olarak saklanır; ekler silinse de 30 gün geri alınabilir (Azure portalı → depolama hesabı → **Kapsayıcılar → data** → blob → **Sürümler / Silinenleri göster**).
+- **Tam dışa aktarım** (ekler dahil, Firebase ile uyumlu tek JSON): `node tools/export-azure.js --out yedek.json`
+- **Bir yedeğe dönmek:** `db.json`'un istenen sürümünü portalda **Geçerli sürüm yap** ile geri alın veya `backups/` altındaki kopyayı `data/db.json` üzerine kopyalayın.
+
+### Firebase'den aktarım (yapıldığı gibi)
+
+1. Firebase konsolu → **Realtime Database → ⋮ → JSON'u dışa aktar**.
+2. `node tools/import-firebase.js --export <dosya>.json` – tüm veriyi (ekler dahil) aktarır, ardından Azure'dan geri okuyup her koleksiyonun sayısını ve içerik özetini karşılaştırır (`SONUÇ: TAMAM`). Azure'da veri varsa durur.
+3. Uygulama `config.js` → `apiUrl` ile Azure'a geçer; herkes bir kez yeniden giriş yapar (eski şifreyle).
+4. Geçiş sırasında Firebase'de yapılan değişiklikler için yeniden dışa aktarıp `--mode merge` ile aktarın (eksik ve daha yeni kayıtları alır, hiçbir şeyi silmez).
+5. Firebase 30 gün yedek olarak kalır: **Kurallar** sekmesine `database.rules.readonly.json` yapıştırılıp yayınlanınca salt okunur olur.
+
+### Fonksiyonu güncellemek
 
 ```powershell
+cd api
 npm install --omit=dev
-tar -a -c -f ..\notify.zip host.json package.json src node_modules
-az functionapp deployment source config-zip -g rg-MURAT -n task-manager-notify-wf3n2h --src ..\notify.zip
+tar -a -c -f ..\api.zip host.json package.json src node_modules
+az functionapp deployment source config-zip -g rg-MURAT -n task-manager-notify-wf3n2h --src ..\api.zip
 ```
 
-> `notifyUrl` boş bırakılırsa uygulama mail göndermeye çalışmaz. `/assignmentMails` kuralı yayımlanmadan da mail gider; yalnızca "aynı atamaya ikinci mail gitmesin" kaydı tutulamaz. Maliyet: bu hacimde Azure Functions, Gmail, ACS (mail başına yaklaşık 0,00025 $) ve Resend fiilen ücretsizdir.
+### Geri dönüş (Firebase'e)
+
+`config.js` dosyasını eski değerlerle değiştirin ve Firebase kurallarını tekrar `database.rules.json` yapın:
+
+```js
+window.TASK_MANAGER_CONFIG = {
+  databaseUrl: 'https://task-manager-b3cea-default-rtdb.europe-west1.firebasedatabase.app',
+  apiKey: 'AIzaSyBGMMyR2RQOhtW2KxZvnDTmoeBXx5_yqMY',
+  notifyUrl: 'https://task-manager-notify-wf3n2h.azurewebsites.net/api/assignment-notify',
+};
+```
+
+Azure'da geçişten sonra yapılan değişiklikleri taşımak için `node tools/export-azure.js` çıktısını Firebase konsolunda **JSON'u içe aktar** ile yükleyin.
+
+### Mail servisleri
+
+Mail üç servisten biriyle gönderilir: `ACS_CONNECTION_STRING` varsa **Azure Communication Services**, yoksa `SMTP_USER`/`SMTP_PASS` varsa **SMTP (Gmail – şu an)**, ikisi de yoksa **Resend**.
+
+| | Gmail SMTP (şu an) | Azure Communication Services | Resend |
+|---|---|---|---|
+| Domain | Gerekmez – `mrtlms@gmail.com` adresinden gider | Gerekmez – Azure'un ücretsiz domaini (`DoNotReply@….azurecomm.net`) | Doğrulanmış domain gerekir |
+| Sınır | Günde 500 mail | Dakikada 5, saatte 10 mail | Günde 100 mail |
+| Önkoşul | Gmail'de 2 adımlı doğrulama + uygulama şifresi | Abonelikte `Microsoft.Communication` kaydı (abonelik yöneticisi), sonra `api/setup-acs.ps1` | DNS ile domain doğrulama |
+
+Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama atama mailini 1, 5, 10 ve 15'er dakika arayla (toplam yaklaşık 1,5 saat) yeniden dener.
 
 ## Yerel kullanım
 
@@ -200,9 +214,10 @@ Depoyu indirip `index.html` dosyasını tarayıcıda açmanız yeterlidir. Excel
 | `index.html` | Sayfa yapısı |
 | `styles.css` | Görünüm |
 | `app.js` | Uygulama mantığı (veri, tablo, filtreler, ayarlar, içe/dışa aktarma, bulut eşitleme, giriş akışı) |
-| `auth.js` | Firebase Authentication REST istemcisi (e-posta/şifre girişi, şifre sıfırlama, oturum yenileme) |
-| `cloud.js` | Firebase Realtime Database REST istemcisi (SDK gerekmez) |
+| `auth.js` | Giriş istemcisi (e-posta/şifre girişi, şifre belirleme, oturum yenileme): Azure API veya Firebase Authentication |
+| `cloud.js` | Veri istemcisi (Firebase REST biçimi; Azure API veya Firebase Realtime Database) |
 | `timesheet.js` | Timesheet: zaman girişleri, giriş penceresi ve raporlar |
-| `config.js` | Veritabanı adresi (`databaseUrl`), Web API anahtarı (`apiKey`) ve atama maili fonksiyonunun adresi (`notifyUrl`) |
-| `database.rules.json` | Firebase konsoluna yapıştırılacak veritabanı kuralları |
-| `notify-function/` | Atama maillerini gönderen Azure Function (Node.js; Gmail SMTP, Azure Communication Services veya Resend) ve ACS kurulum betiği `setup-acs.ps1` |
+| `config.js` | Sunucu adresi (`apiUrl`); Firebase'e geri dönüş için `databaseUrl`/`apiKey`/`notifyUrl` |
+| `api/` | Azure Functions sunucusu: veri API'si ve kuralları (`src/lib/rules.js`), giriş, atama maili, günlük yedek; `tools/` altında aktarım, dışa aktarım ve kullanıcı araçları; ACS kurulum betiği `setup-acs.ps1` |
+| `database.rules.json` | Firebase kuralları (geri dönüş için; sunucu kurallarıyla aynı) |
+| `database.rules.readonly.json` | Geçişten sonra Firebase'i salt okunur yapan kurallar |

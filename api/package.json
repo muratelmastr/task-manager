@@ -1,0 +1,15 @@
+{
+  "name": "task-manager-api",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Ekip Görev Takibi – Azure Functions backend (data API, sign-in, assignment mails, backups)",
+  "main": "src/functions/*.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.17.1",
+    "@azure/storage-blob": "^12.34.0",
+    "nodemailer": "^10.6.1"
+  }
+}
