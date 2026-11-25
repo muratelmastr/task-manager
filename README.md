@@ -20,6 +20,11 @@ Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kur
 - **Görev detayı:** Geniş pencerede solda açıklama ve ekler, sağda alanlar (Alan, Sahip, Durum, Öncelik, tarihler, Oluşturan) yer alır; mobilde tek sütundur.
 - **Açıklama (zengin metin):** Kalın, italik, altı/üstü çizili, başlık, madde/numaralı liste, alıntı, kod bloğu, bağlantı (Ctrl+K) ve biçimi temizle. Word/e-postadan yapıştırılan metin güvenli biçimde temizlenir (yalnızca bu biçimler korunur). Aynı açıklamayı iki kişi aynı anda düzenlerse kaydederken uyarı çıkar. Açıklaması olan görevlerde kart ve satırda ≡ simgesi görünür.
 - **Ekler:** Görev detayında **Dosya ekle** veya sürükle-bırak ile dosya eklenir (dosya başına **en fazla 10 MB**). Tüm kullanıcılar indirebilir; ekleri yalnızca **yükleyen kişi** silebilir. Ek sayısı kart ve satırda 📎 ile gösterilir. Görev silinirse açıklaması ve ekleri de silinir. Ekler kullanıcı girişli ortak veritabanı modunda kullanılabilir.
+- **Yorumlar:** Görev detayında Ekler'in altındadır. Yorum en fazla **300 karakter** olabilir (kalan karakter sayacı görünür); **Yorum yap** düğmesi veya **Ctrl+Enter** ile görevi kaydetmeden anında kaydedilir. Yorumlar en yeni üstte listelenir; her yorumun üstünde yazan kişi ve tarih-saat yer alır.
+  - **Etiketleme:** `@` yazınca ekip listesi açılır (ad, soyad veya kullanıcı adıyla süzülür; ↑/↓, Enter/Tab ile seçilir, Esc kapatır) ve `@KullaniciAdi` eklenir. Etiketler yorumda vurgulu görünür.
+  - **Mail:** Yorumda etiketlenen herkese ve görevin sahibine mail gider (yazan hariç; aynı yorum için kimseye iki kez gitmez). Mailde görev, yorum metni ve yazan yer alır; **Yorumu görüntüle** bağlantısı görevi açar ve yorumu vurgular. Yorum düzenlenirse yalnızca **yeni eklenen** etiketlere mail gider. Mail gönderilemezse atama mailindeki gibi yeniden denenir.
+  - **Düzenleme/silme:** Herkes yalnızca **kendi** yorumunu düzenleyip silebilir (silmeden önce onay sorulur); düzenlenen yorumda "düzenlendi" notu görünür.
+  - Yorum sayısı kart ve satırda 💬 ile gösterilir. Görev silinirse yorumları da silinir. Kaydedilmemiş yeni görevde yorum yapılamaz; gönderilmemiş bir yorum varken pencere kapatılırsa onay sorulur. Yorumlar Azure'daki günlük yedeğe dahildir; uygulamadaki JSON/Excel yedeğine dahil değildir.
 - **Tamamlanan görevler silinmez:** Sayfa açıldığında yalnızca `Durum ≠ Tamamlandı` olan görevler görünür. **Tamamlananları göster** seçeneği (veya Durum filtresinde `Tamamlandı`) ile görülebilir; Board'da bu seçenek yerine "Tamamlandı" sütunundaki **Göster / Gizle** bağlantısı kullanılır. Tamamlanan görevlerin silme butonu kapalıdır; açık görevler onay ile silinebilir.
 - **Tarih uyarıları** (yalnızca tamamlanmamış görevler için):
   - 🔴 Kırmızı: Tamamlanma tarihine **3 günden az** kaldı veya tarih **geçti**
@@ -103,6 +108,7 @@ Azure Function App  task-manager-notify-wf3n2h
    ├─ /api/db/<yol>.json      Firebase REST ile uyumlu veri API'si (GET/PUT/PATCH/DELETE, sorgular) + kurallar
    ├─ /api/auth/*             giriş, oturum yenileme, şifre belirleme
    ├─ /api/assignment-notify  atama maili
+   ├─ /api/comment-notify     yorum maili (etiketlenenler + görev sahibi)
    ├─ overdueDigest           her gün 10:00 (TR) gecikme maili
    └─ dailyBackup             her gece 01:30 (UTC) yedek
    ▼
@@ -204,7 +210,7 @@ Mail üç servisten biriyle gönderilir: `ACS_CONNECTION_STRING` varsa **Azure C
 | Sınır | Günde 500 mail | Dakikada 5, saatte 10 mail | Günde 100 mail |
 | Önkoşul | Gmail'de 2 adımlı doğrulama + uygulama şifresi | Abonelikte `Microsoft.Communication` kaydı (abonelik yöneticisi), sonra `api/setup-acs.ps1` | DNS ile domain doğrulama |
 
-Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama atama mailini 1, 5, 10 ve 15'er dakika arayla (toplam yaklaşık 1,5 saat) yeniden dener.
+Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama atama ve yorum maillerini 1, 5, 10 ve 15'er dakika arayla (toplam yaklaşık 1,5 saat) yeniden dener. Yorum maillerinde kime gönderildiği `commentMails` altında tutulur; yeniden denemede yalnızca henüz mail almamış kişilere gönderilir.
 
 ### Gecikme maili
 

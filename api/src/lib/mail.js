@@ -239,4 +239,58 @@ ${button(appUrl, 'Uygulamayı aç')}`, note);
   return { subject, html, text };
 }
 
-module.exports = { mailSettings, sendMail, buildAssignmentMail, buildResetMail, buildOverdueMail, acsHeaders, uuidFrom, fullName, MailError };
+// Comment text as HTML: escaped, line breaks kept, @mentions highlighted.
+function commentHtml(text, mentionRe) {
+  let out = '';
+  let last = 0;
+  const src = String(text || '');
+  if (mentionRe) {
+    mentionRe.lastIndex = 0;
+    for (let m = mentionRe.exec(src); m; m = mentionRe.exec(src)) {
+      const at = m.index + m[1].length;
+      out += esc(src.slice(last, at)) + `<strong style="color:#2563eb">${esc(src.slice(at, mentionRe.lastIndex))}</strong>`;
+      last = mentionRe.lastIndex;
+    }
+  }
+  return (out + esc(src.slice(last))).replace(/\r?\n/g, '<br>');
+}
+
+// reason: 'mention' (tagged with @) or 'owner' (comment on a task the recipient owns).
+function buildCommentMail({ task, comment, caller, recipient, reason, link, redirected, mentionRe, edited }) {
+  const no = task.no ? `#${task.no}` : '';
+  const title = `${no ? `${no} ` : ''}${String(task.gorev || '').trim()}`;
+  const who = fullName(caller);
+  const subject = (reason === 'mention' ? `${who} sizi bir yorumda etiketledi: ${title}` : `Görevinize yorum yapıldı: ${title}`).slice(0, 250);
+  const intro = reason === 'mention'
+    ? `${who}, aşağıdaki göreve ${edited ? 'düzenlediği' : 'yaptığı'} yorumda sizi etiketledi.`
+    : `${who}, sahibi olduğunuz göreve yorum yaptı.`;
+  const when = new Date(comment.tarih);
+  const whenText = Number.isNaN(when.getTime()) ? '' : when.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul', dateStyle: 'short', timeStyle: 'short' });
+  const note = redirected
+    ? `<p style="margin:0 0 16px;padding:10px 12px;background:#fff8e6;border:1px solid #f5d48a;border-radius:6px;font-size:13px;color:#7a5200">Test modu: bu mail asıl alıcı ${esc(fullName(recipient))} &lt;${esc(recipient.email)}&gt; yerine size yönlendirildi.</p>`
+    : '';
+  const html = layout(`<p style="margin:0 0 8px;font-size:15px">Merhaba ${esc(recipient.ad || fullName(recipient))},</p>
+<p style="margin:0 0 16px;font-size:15px">${esc(intro)}</p>
+<p style="margin:0 0 8px;font-size:14px"><a href="${esc(link)}" style="color:#2563eb;text-decoration:none;font-weight:600">${esc(title)}</a></p>
+<div style="margin:0;padding:12px 14px;background:#f5f6f8;border-left:3px solid #2563eb;border-radius:6px">
+<p style="margin:0 0 6px;font-size:12px;color:#6b7280"><strong style="color:#374151">${esc(who)}</strong>${whenText ? ` · ${esc(whenText)}` : ''}${edited ? ' · düzenlendi' : ''}</p>
+<p style="margin:0;font-size:14px;line-height:1.5">${commentHtml(comment.metin, mentionRe)}</p>
+</div>
+<p style="margin:12px 0 0;font-size:13px;color:#6b7280">Bu maile yanıt verirseniz yanıtınız ${esc(who)} adlı kişiye gider.</p>
+${button(link, 'Yorumu görüntüle')}`, note);
+  const text = [
+    redirected ? `[Test modu: asıl alıcı ${fullName(recipient)} <${recipient.email}>]\n` : '',
+    `Merhaba ${recipient.ad || fullName(recipient)},`,
+    '',
+    intro,
+    '',
+    `Görev: ${title}`,
+    `${who}${whenText ? ` · ${whenText}` : ''}${edited ? ' · düzenlendi' : ''}:`,
+    String(comment.metin || ''),
+    '',
+    `Yorumu görüntüle: ${link}`,
+  ].join('\n');
+  return { subject, html, text };
+}
+
+module.exports = { mailSettings, sendMail, buildAssignmentMail, buildResetMail, buildOverdueMail, buildCommentMail, acsHeaders, uuidFrom, fullName, MailError };

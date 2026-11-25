@@ -6,7 +6,8 @@
 
 const { getAt, splitPath, isObject } = require('./tree');
 
-const COLLECTIONS = ['users', 'tasks', 'lists', 'taskNumbers', 'details', 'attachments', 'files', 'timesheets', 'assignmentMails'];
+const COLLECTIONS = ['users', 'tasks', 'lists', 'taskNumbers', 'details', 'attachments', 'files', 'timesheets', 'assignmentMails', 'comments', 'commentMails'];
+const MAX_COMMENT = 300;
 const DONE = 'Tamamlandı';
 const DAY_MS = 86400000;
 
@@ -41,6 +42,13 @@ const TASK_FIELDS = {
   no: (v) => isNum(v) && v >= 1 && v <= 9999999,
   aciklamaVar: (v) => v === true,
   ekSayisi: (v) => isNum(v) && v >= 1 && v <= 1000,
+  yorumSayisi: (v) => isNum(v) && v >= 1 && v <= 100000,
+};
+const COMMENT_FIELDS = {
+  yazan: (v) => isStr(v, 120, 1),
+  metin: (v) => isStr(v, MAX_COMMENT, 1) && v.trim().length > 0,
+  tarih: (v) => isStr(v, 40, 1),
+  duzenlenme: (v) => isStr(v, 40, 1),
 };
 const DETAIL_FIELDS = {
   aciklama: (v) => isStr(v, 100000),
@@ -112,6 +120,23 @@ function canWrite(path, oldRoot, newRoot, me, nowMs = Date.now()) {
       return key.length <= 64 && has(newV, ['gorevId', 'kullanici', 'tarih', 'gun', 'saat'])
         && newV.gun >= today - 31 && newV.gun <= today + 1 && fieldsOk(oldV, newV, TIMESHEET_FIELDS);
     }
+    case 'comments': {
+      // $key level: a deleted task takes its comments with it.
+      if (newV == null && getAt(newRoot, ['tasks', key]) == null) return true;
+      if (segs.length < 3) return false;
+      const cid = segs[2];
+      const o = getAt(oldRoot, [coll, key, cid]);
+      const n = getAt(newRoot, [coll, key, cid]);
+      // Everyone writes only their own comments; the author never changes.
+      const ok = (o == null && n && n.yazan === me && getAt(newRoot, ['tasks', key]) != null)
+        || (o != null && o.yazan === me && (n == null || n.yazan === me));
+      if (!ok) return false;
+      if (n == null) return true;
+      return cid.length <= 64 && has(n, ['yazan', 'metin', 'tarih']) && (o == null || n.tarih === o.tarih) && fieldsOk(o, n, COMMENT_FIELDS);
+    }
+    case 'commentMails':
+      // Written by the comment-notify function only; removed together with the task.
+      return newV == null && getAt(newRoot, ['tasks', key]) == null;
     case 'attachments':
     case 'files': {
       // $key level: a deleted task takes all of its attachments with it.
@@ -146,4 +171,4 @@ function canWrite(path, oldRoot, newRoot, me, nowMs = Date.now()) {
   }
 }
 
-module.exports = { canRead, canWrite, COLLECTIONS };
+module.exports = { canRead, canWrite, COLLECTIONS, MAX_COMMENT };

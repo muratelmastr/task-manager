@@ -20,6 +20,11 @@
   const timesheetEnabled = !!auth && !!window.TaskTimesheet;
   // Assignment mails are sent by the API (see api/).
   const notifyUrl = auth ? String(config.notifyUrl || (config.apiUrl ? `${String(config.apiUrl).replace(/\/+$/, '')}/assignment-notify` : '')).trim() : '';
+  // Task comments live in the Azure API (they need its comment-notify mail function).
+  const commentsEnabled = !!auth && !!config.apiUrl;
+  const commentNotifyUrl = commentsEnabled ? `${String(config.apiUrl).replace(/\/+$/, '')}/comment-notify` : '';
+  const COMMENT_NOTIFY_KEY = 'taskManager.commentNotifyPending';
+  const MAX_COMMENT = 300;
   const MAX_FILE_BYTES = 10 * 1024 * 1024;
   const CHUNK_BYTES = 384 * 1024; // 512 KB once base64-encoded
   const LOGIN_MESSAGE_KEY = 'taskManager.loginMessage';
@@ -304,6 +309,7 @@
         aciklama: typeof t.aciklama === 'string' ? sanitizeHtml(t.aciklama) : '',
         aciklamaVar: t.aciklamaVar === true,
         ekSayisi: normalizeCount(t.ekSayisi),
+        yorumSayisi: normalizeCount(t.yorumSayisi),
       };
     });
 
@@ -731,6 +737,7 @@
     const items = [];
     if (hasDescription(task)) items.push(el('span', { class: 'indicator', title: 'Açıklaması var' }, icon('text', 'icon-sm')));
     if (task.ekSayisi) items.push(el('span', { class: 'indicator', title: `${task.ekSayisi} ek` }, icon('paperclip', 'icon-sm'), String(task.ekSayisi)));
+    if (task.yorumSayisi) items.push(el('span', { class: 'indicator', title: `${task.yorumSayisi} yorum` }, icon('message', 'icon-sm'), String(task.yorumSayisi)));
     return items;
   }
 
@@ -1044,6 +1051,7 @@
     setTaskSaving(false);
     loadDescription(task);
     loadAttachments(task);
+    loadComments(task);
     loadTaskTime(task);
     $('#task-dialog').showModal();
     form.elements.gorev.focus();
@@ -1081,6 +1089,7 @@
   function closeTaskDialog() {
     if (savingTask) return;
     if (descriptionDirty() && !confirm('Açıklamada kaydedilmemiş değişiklikler var. Kaydetmeden kapatılsın mı?')) return;
+    if (commentDraftPending() && !confirm('Gönderilmemiş bir yorumunuz var. Gönderilmeden kapatılsın mı?')) return;
     $('#task-dialog').close();
   }
 
@@ -1396,14 +1405,19 @@
   }
 
   function setAttachmentCount(task, count, direct = false) {
+    setTaskCount(task, 'ekSayisi', count, direct);
+  }
+
+  // Counters on the task record (ekSayisi, yorumSayisi) shown as card/list icons.
+  function setTaskCount(task, field, count, direct = false) {
     if (!data.tasks.includes(task)) return;
     const id = task.id;
     const known = cloud.remote.tasks[id];
     const inSync = known !== undefined && known === taskSig(task);
-    if (task.ekSayisi !== count) applyChange(task, 'ekSayisi', count);
+    if (task[field] !== count) applyChange(task, field, count);
     else if (!direct) return;
     if (direct && inSync) {
-      cloud.store.patch({ [`${taskPath(id)}/ekSayisi`]: count || null, [`${taskPath(id)}/updatedAt`]: task.updatedAt })
+      cloud.store.patch({ [`${taskPath(id)}/${field}`]: count || null, [`${taskPath(id)}/updatedAt`]: task.updatedAt })
         .then(() => {
           if (cloud.remote.tasks[id] === known) cloud.remote.tasks[id] = taskSig(task);
           persistCloudCache();
@@ -1577,6 +1591,365 @@
     const dialog = $('#task-dialog');
     dialog.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
     dialog.addEventListener('drop', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  }
+
+  // ---------- Comments (signed-in Azure mode) ----------
+  // /comments/{task}/{id} = { yazan, metin (≤ 300), tarih, duzenlenme? }. Everyone writes only their
+  // own comments. People tagged with @KullaniciAdi and the task owner are mailed by comment-notify.
+
+  const comm = { taskId: null, items: [], token: 0, editing: null, editDraft: '', focusEdit: false, busy: false, focusId: null };
+  const commentPath = (taskId, id) => `comments/${taskKey(taskId)}${id ? `/${taskKey(id)}` : ''}`;
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // "@name" for known user names, not inside a word or an e-mail address (same as the API).
+  function mentionRegex() {
+    const names = [...new Set((directory || []).map((u) => u.kullaniciAdi))].sort((a, b) => b.length - a.length).map(escapeRe);
+    return names.length ? new RegExp(`(^|[^\\p{L}\\p{N}_@.])@(${names.join('|')})(?![\\p{L}\\p{N}_])`, 'giu') : null;
+  }
+
+  // Comment text as text nodes with highlighted @mentions (never parsed as HTML).
+  function commentNodes(text) {
+    const re = mentionRegex();
+    const out = [];
+    let last = 0;
+    if (re) {
+      for (const m of text.matchAll(re)) {
+        const at = m.index + m[1].length;
+        if (at > last) out.push(text.slice(last, at));
+        const u = directory.find((x) => x.kullaniciAdi.toLocaleLowerCase('tr') === m[2].toLocaleLowerCase('tr'));
+        out.push(el('span', { class: 'mention', textContent: `@${m[2]}`, title: u ? fullName(u) : '' }));
+        last = at + m[2].length + 1;
+      }
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  }
+
+  const commentFromServer = (id, v) => ({ id, yazan: str(v.yazan), metin: str(v.metin), tarih: str(v.tarih), duzenlenme: str(v.duzenlenme) });
+
+  function setCommentNote(text) {
+    const n = $('#comment-note');
+    n.hidden = !text;
+    n.textContent = text || '';
+  }
+
+  function updateChars(node, value) {
+    node.textContent = `${value.length}/${MAX_COMMENT}`;
+    node.classList.toggle('is-near', value.length >= MAX_COMMENT - 20);
+  }
+
+  function updateCommentCompose() {
+    const value = $('#comment-input').value;
+    updateChars($('#comment-chars'), value);
+    const btn = $('#btn-comment');
+    btn.disabled = comm.busy || !value.trim();
+    btn.textContent = comm.busy && !comm.editing ? 'Gönderiliyor…' : 'Yorum yap';
+  }
+
+  function setCommentBusy(busy) {
+    comm.busy = busy;
+    updateCommentCompose();
+    document.querySelectorAll('#comment-list .comment-edit .btn-primary').forEach((b) => { b.disabled = busy; });
+  }
+
+  async function loadComments(task) {
+    const token = ++comm.token;
+    comm.taskId = task ? task.id : null;
+    comm.items = [];
+    comm.editing = null;
+    closeMentions();
+    $('#comments').hidden = !commentsEnabled;
+    if (!commentsEnabled) return;
+    $('#comment-input').value = '';
+    setCommentBusy(false);
+    $('#comment-compose').hidden = !task;
+    if (!task) {
+      setCommentNote('Yorum yapmak için önce görevi kaydedin.');
+      renderComments();
+      return;
+    }
+    setCommentNote(task.yorumSayisi ? 'Yorumlar yükleniyor…' : '');
+    renderComments();
+    try {
+      const list = await cloud.store.get(commentPath(task.id));
+      if (token !== comm.token) return;
+      comm.items = Object.entries(list || {}).filter(([, v]) => v && typeof v === 'object').map(([id, v]) => commentFromServer(id, v));
+      setCommentNote('');
+      renderComments();
+      setTaskCount(task, 'yorumSayisi', comm.items.length, task.yorumSayisi !== comm.items.length);
+      focusDeepLinkedComment();
+    } catch (err) {
+      if (token !== comm.token) return;
+      setCommentNote(`Yorumlar yüklenemedi: ${err.message}`);
+    }
+  }
+
+  function renderComments() {
+    const items = [...comm.items].sort((a, b) => b.tarih.localeCompare(a.tarih));
+    const badge = $('#comment-count');
+    badge.hidden = !items.length;
+    badge.textContent = String(items.length);
+    const me = myUsername();
+    $('#comment-list').replaceChildren(...items.map((c) => {
+      const editing = comm.editing === c.id;
+      const head = el('div', { class: 'comment-head' },
+        buildAvatar(c.yazan, 'avatar-sm'),
+        el('strong', { class: 'comment-author', textContent: displayName(c.yazan) || '—' }),
+        el('span', { class: 'comment-meta', textContent: formatDateTime(c.tarih) }),
+        c.duzenlenme ? el('span', { class: 'comment-meta comment-edited', textContent: '· düzenlendi', title: `Düzenlenme: ${formatDateTime(c.duzenlenme)}` }) : null);
+      if (me && c.yazan === me && !editing) {
+        head.append(el('span', { class: 'comment-actions' },
+          iconButton('pencil', 'Yorumu düzenle', { onclick: () => startEditComment(c) }),
+          iconButton('trash', 'Yorumu sil', { class: 'btn btn-ghost btn-icon btn-sm btn-danger', onclick: () => deleteComment(c) })));
+      }
+      const li = el('li', { class: 'comment', dataset: { id: c.id } }, head);
+      li.append(editing ? buildCommentEditor(c) : el('p', { class: 'comment-text' }, ...commentNodes(c.metin)));
+      return li;
+    }));
+  }
+
+  function buildCommentEditor(c) {
+    const ta = el('textarea', { class: 'input comment-input', rows: 2, maxLength: MAX_COMMENT, value: comm.editDraft, 'aria-label': 'Yorumu düzenle' });
+    const chars = el('span', { class: 'comment-chars' });
+    const save = el('button', { type: 'button', class: 'btn btn-sm btn-primary', textContent: 'Kaydet', onclick: () => saveEditedComment(c, ta.value) });
+    const cancel = el('button', { type: 'button', class: 'btn btn-sm', textContent: 'Vazgeç', onclick: () => cancelEditComment() });
+    const sync = () => {
+      comm.editDraft = ta.value;
+      updateChars(chars, ta.value);
+      save.disabled = comm.busy || !ta.value.trim() || ta.value.trim() === c.metin;
+    };
+    attachMentions(ta);
+    ta.addEventListener('input', sync);
+    ta.addEventListener('keydown', (e) => {
+      if (e.defaultPrevented) return; // handled by the @ suggestion list
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (!save.disabled) saveEditedComment(c, ta.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelEditComment();
+      }
+    });
+    sync();
+    if (comm.focusEdit) {
+      comm.focusEdit = false;
+      requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
+    }
+    return el('div', { class: 'comment-edit' },
+      el('div', { class: 'mention-wrap' }, ta),
+      el('div', { class: 'comment-compose-foot' }, chars, el('span', { class: 'spacer' }), cancel, save));
+  }
+
+  function startEditComment(c) {
+    comm.editing = c.id;
+    comm.editDraft = c.metin;
+    comm.focusEdit = true;
+    renderComments();
+  }
+
+  function cancelEditComment() {
+    comm.editing = null;
+    closeMentions();
+    renderComments();
+  }
+
+  const commentDraftPending = () => !!(commentsEnabled && (($('#comment-input').value.trim() && !$('#comment-compose').hidden)
+    || (comm.editing && comm.items.some((c) => c.id === comm.editing && c.metin !== comm.editDraft.trim()))));
+
+  async function postComment() {
+    const task = editingTask;
+    const input = $('#comment-input');
+    const text = input.value.trim();
+    if (!task || !text || comm.busy || comm.taskId !== task.id || text.length > MAX_COMMENT) return;
+    if (cloud.remote.tasks[task.id] === undefined) {
+      toast('Görev henüz ortak veritabanına kaydedilmedi; birkaç saniye sonra tekrar deneyin.');
+      return;
+    }
+    const id = uid();
+    const item = { yazan: myUsername(), metin: text, tarih: nowIso() };
+    setCommentBusy(true);
+    try {
+      await cloud.store.put(commentPath(task.id, id), item);
+    } catch (err) {
+      setCommentBusy(false);
+      toast(`Yorum kaydedilemedi: ${err.message}`);
+      return;
+    }
+    setCommentBusy(false);
+    if (comm.taskId === task.id) {
+      comm.items.push(commentFromServer(id, item));
+      input.value = '';
+      updateCommentCompose();
+      renderComments();
+    }
+    refreshCommentCount(task);
+    queueCommentNotify(task.id, id);
+  }
+
+  async function saveEditedComment(c, value) {
+    const task = editingTask;
+    const text = value.trim();
+    if (!task || !text || comm.busy || text.length > MAX_COMMENT) return;
+    const item = { yazan: c.yazan, metin: text, tarih: c.tarih, duzenlenme: nowIso() };
+    setCommentBusy(true);
+    try {
+      await cloud.store.put(commentPath(task.id, c.id), item);
+    } catch (err) {
+      setCommentBusy(false);
+      toast(`Yorum kaydedilemedi: ${err.message}`);
+      return;
+    }
+    setCommentBusy(false);
+    Object.assign(c, item);
+    comm.editing = null;
+    closeMentions();
+    renderComments();
+    queueCommentNotify(task.id, c.id);
+  }
+
+  async function deleteComment(c) {
+    const task = editingTask;
+    if (!task || comm.busy || !confirm('Yorum silinsin mi? Bu işlem geri alınamaz.')) return;
+    setCommentBusy(true);
+    try {
+      await cloud.store.remove(commentPath(task.id, c.id));
+    } catch (err) {
+      setCommentBusy(false);
+      toast(`Yorum silinemedi: ${err.message}`);
+      return;
+    }
+    setCommentBusy(false);
+    comm.items = comm.items.filter((x) => x !== c);
+    if (comm.editing === c.id) comm.editing = null;
+    renderComments();
+    refreshCommentCount(task);
+  }
+
+  // The comment counter on the task is recounted from the server (concurrent comments).
+  async function refreshCommentCount(task) {
+    let keys;
+    try {
+      keys = await cloud.store.get(commentPath(task.id), 'shallow=true');
+    } catch (err) {
+      return;
+    }
+    setTaskCount(task, 'yorumSayisi', Object.keys(keys || {}).length, true);
+  }
+
+  // Opened from a comment mail (?gorev=12&yorum=<id>): scroll to and highlight the comment.
+  function focusDeepLinkedComment() {
+    const id = comm.focusId;
+    if (!id) return;
+    comm.focusId = null;
+    const li = [...document.querySelectorAll('#comment-list .comment')].find((x) => x.dataset.id === id);
+    if (!li) return;
+    li.classList.add('is-focus');
+    li.scrollIntoView({ block: 'nearest' });
+    setTimeout(() => li.classList.remove('is-focus'), 4000);
+  }
+
+  // @ suggestions: typing "@" (optionally followed by the start of a name) lists teammates;
+  // ↑/↓ move, Enter/Tab pick, Esc closes. One shared list, moved under the active textarea.
+  const mention = { input: null, start: 0, items: [], active: 0, list: null };
+  const mentionsOpen = () => !!(mention.list && !mention.list.hidden);
+
+  function closeMentions() {
+    if (mention.list) mention.list.hidden = true;
+    if (mention.input) mention.input.setAttribute('aria-expanded', 'false');
+    mention.input = null;
+    mention.items = [];
+  }
+
+  function attachMentions(ta) {
+    ta.setAttribute('aria-autocomplete', 'list');
+    ta.setAttribute('aria-expanded', 'false');
+    ta.addEventListener('input', () => updateMentions(ta));
+    ta.addEventListener('click', () => updateMentions(ta));
+    ta.addEventListener('keydown', (e) => onMentionKey(e, ta));
+    ta.addEventListener('blur', () => setTimeout(() => { if (mention.input === ta && document.activeElement !== ta) closeMentions(); }, 150));
+  }
+
+  function updateMentions(ta) {
+    const caret = ta.selectionStart;
+    const m = caret === ta.selectionEnd ? /(^|[^\p{L}\p{N}_@.])@([\p{L}\p{N}_.-]{0,30})$/u.exec(ta.value.slice(0, caret)) : null;
+    const q = m ? m[2].toLocaleLowerCase('tr') : '';
+    const me = myUsername();
+    const matches = m && directory ? directory.filter((u) => u.kullaniciAdi !== me
+      && (!q || [u.kullaniciAdi, u.ad, u.soyad, fullName(u)].some((s) => s && s.toLocaleLowerCase('tr').startsWith(q)))).slice(0, 6) : [];
+    if (!matches.length || (matches.length === 1 && matches[0].kullaniciAdi.toLocaleLowerCase('tr') === q)) { closeMentions(); return; }
+    if (!mention.list) {
+      mention.list = el('ul', { class: 'combo-list mention-list', role: 'listbox', 'aria-label': 'Kişiler', id: 'mention-list' });
+      mention.list.addEventListener('mousedown', (e) => e.preventDefault()); // keep the textarea focused
+    }
+    if (mention.list.parentElement !== ta.parentElement) ta.parentElement.append(mention.list);
+    const sameQuery = mention.input === ta && mention.start === caret - m[2].length - 1 && mention.items.length === matches.length;
+    mention.input = ta;
+    mention.start = caret - m[2].length - 1;
+    mention.items = matches;
+    if (!sameQuery) mention.active = 0;
+    ta.setAttribute('aria-controls', 'mention-list');
+    ta.setAttribute('aria-expanded', 'true');
+    renderMentionItems();
+    mention.list.hidden = false;
+  }
+
+  function renderMentionItems() {
+    mention.list.replaceChildren(...mention.items.map((u, i) => el('li', {
+      class: `combo-option mention-option${i === mention.active ? ' is-active' : ''}`,
+      role: 'option',
+      'aria-selected': String(i === mention.active),
+      onclick: () => pickMention(i),
+    }, buildAvatar(u.kullaniciAdi, 'avatar-sm'), el('span', { class: 'mention-name', textContent: fullName(u) }), el('span', { class: 'mention-user', textContent: `@${u.kullaniciAdi}` }))));
+  }
+
+  function onMentionKey(e, ta) {
+    if (!mentionsOpen() || mention.input !== ta) return;
+    const n = mention.items.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      mention.active = (mention.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+      renderMentionItems();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      pickMention(mention.active);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeMentions();
+    }
+  }
+
+  function pickMention(i) {
+    const u = mention.items[i];
+    const ta = mention.input;
+    if (!u || !ta) return;
+    const before = ta.value.slice(0, mention.start);
+    const after = ta.value.slice(ta.selectionStart).replace(/^\s+/, '');
+    const insert = `@${u.kullaniciAdi} `;
+    closeMentions();
+    if ((before + insert + after).length > MAX_COMMENT) {
+      toast(`Yorum en fazla ${MAX_COMMENT} karakter olabilir.`);
+      return;
+    }
+    ta.value = before + insert + after;
+    const pos = before.length + insert.length;
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function setupComments() {
+    const input = $('#comment-input');
+    attachMentions(input);
+    input.addEventListener('input', updateCommentCompose);
+    input.addEventListener('keydown', (e) => {
+      if (!e.defaultPrevented && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        postComment();
+      }
+    });
+    $('#btn-comment').addEventListener('click', postComment);
   }
 
   function renderSummary() {
@@ -1755,7 +2128,7 @@
       }
     }
     const name = task.gorev ? `"${task.gorev}"` : 'Bu (isimsiz)';
-    if (!confirm(`${name} görevi silinsin mi?${attachmentsEnabled ? ' Açıklaması ve ekleri de silinir.' : ''} Bu işlem geri alınamaz.`)) return false;
+    if (!confirm(`${name} görevi silinsin mi?${commentsEnabled ? ' Açıklaması, ekleri ve yorumları da silinir.' : attachmentsEnabled ? ' Açıklaması ve ekleri de silinir.' : ''} Bu işlem geri alınamaz.`)) return false;
     data.tasks = data.tasks.filter((t) => t.id !== task.id);
     ui.pinned.delete(task.id);
     save();
@@ -2076,6 +2449,7 @@
     if (t.no) v.no = t.no;
     if (t.aciklamaVar) v.aciklamaVar = true;
     if (t.ekSayisi) v.ekSayisi = t.ekSayisi;
+    if (t.yorumSayisi) v.yorumSayisi = t.yorumSayisi;
     return v;
   };
   const taskSig = (t) => {
@@ -2085,6 +2459,7 @@
     if (t.no) sig.push(`no:${t.no}`);
     if (t.aciklamaVar) sig.push('desc');
     if (t.ekSayisi) sig.push(`files:${t.ekSayisi}`);
+    if (t.yorumSayisi) sig.push(`comments:${t.yorumSayisi}`);
     return JSON.stringify(sig);
   };
   const listSig = (values) => values.join('\n');
@@ -2109,6 +2484,7 @@
       aciklama: '',
       aciklamaVar: v.aciklamaVar === true,
       ekSayisi: normalizeCount(v.ekSayisi),
+      yorumSayisi: normalizeCount(v.yorumSayisi),
     };
   }
 
@@ -2190,6 +2566,7 @@
       if (auth) {
         const key = window.TaskCloud.encodeKey(id);
         op.also = { [`details/${key}`]: null, [`attachments/${key}`]: null, [`files/${key}`]: null };
+        if (commentsEnabled) Object.assign(op.also, { [`comments/${key}`]: null, [`commentMails/${key}`]: null });
       }
       ops.push(op);
     }
@@ -2254,10 +2631,10 @@
       const existing = data.tasks.find((x) => x.id === t.id);
       const copy = { ...t, aciklama: '' };
       if (existing) {
-        Object.assign(copy, { no: existing.no, ekSayisi: existing.ekSayisi, aciklamaVar: existing.aciklamaVar });
+        Object.assign(copy, { no: existing.no, ekSayisi: existing.ekSayisi, yorumSayisi: existing.yorumSayisi, aciklamaVar: existing.aciklamaVar });
         Object.assign(existing, copy);
       } else {
-        data.tasks.push(Object.assign(copy, { no: null, ekSayisi: 0, aciklamaVar: false }));
+        data.tasks.push(Object.assign(copy, { no: null, ekSayisi: 0, yorumSayisi: 0, aciklamaVar: false }));
       }
     }
     applyDirectory();
@@ -2332,6 +2709,7 @@
       persistCloudCache();
       setCloudStatus('saved');
       sendAssignmentMails();
+      sendCommentMails();
     } catch (err) {
       console.warn('Eşitleme hatası', err);
       if (auth && (err.code === 'noaccess' || err.code === 'denied')) {
@@ -2437,16 +2815,18 @@
     setPendingNotify(p);
   }
 
-  async function postNotify(id, force = false) {
+  async function postJson(url, body, force = false) {
     const token = await auth.getToken(force);
-    const res = await fetch(notifyUrl, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task: id }),
+      body: JSON.stringify(body),
     });
-    if (res.status === 401 && !force) return postNotify(id, true);
+    if (res.status === 401 && !force) return postJson(url, body, true);
     return res;
   }
+
+  const postNotify = (id) => postJson(notifyUrl, { task: id });
 
   async function sendAssignmentMails() {
     if (!notifyUrl || !cloud || cloud.notifying) return;
@@ -2486,17 +2866,82 @@
     }
   }
 
+  // ---------- Comment mails ----------
+  // After a comment is saved (or edited) the comment-notify function mails tagged people and the
+  // task owner. Requests wait in localStorage, so a failed or interrupted request is retried; the
+  // function records who has been mailed, so repeats never send a mail twice.
+
+  function pendingCommentNotify() {
+    try {
+      const p = JSON.parse(localStorage.getItem(COMMENT_NOTIFY_KEY));
+      return Array.isArray(p) ? p.filter((x) => x && typeof x.task === 'string' && typeof x.comment === 'string') : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function setPendingCommentNotify(list) {
+    if (list.length) localStorage.setItem(COMMENT_NOTIFY_KEY, JSON.stringify(list));
+    else localStorage.removeItem(COMMENT_NOTIFY_KEY);
+  }
+
+  function queueCommentNotify(task, comment) {
+    if (!commentNotifyUrl) return;
+    const p = pendingCommentNotify().filter((x) => !(x.task === task && x.comment === comment));
+    p.push({ task, comment, n: 0, after: 0 });
+    setPendingCommentNotify(p);
+    sendCommentMails();
+  }
+
+  async function sendCommentMails() {
+    if (!commentNotifyUrl || !cloud || cloud.commentNotifying) return;
+    const now = Date.now();
+    const all = pendingCommentNotify();
+    const ready = all.filter((x) => !(x.after > now));
+    if (!ready.length) return;
+    setPendingCommentNotify(all.filter((x) => x.after > now));
+    cloud.commentNotifying = true;
+    try {
+      for (const x of ready) {
+        let retry = false;
+        try {
+          const res = await postJson(commentNotifyUrl, { task: x.task, comment: x.comment });
+          retry = res.status >= 500;
+          if (!res.ok) console.warn('Yorum maili gönderilemedi', res.status, await res.text());
+        } catch (err) {
+          retry = true;
+          console.warn('Yorum maili gönderilemedi', err);
+        }
+        const n = Number(x.n) || 0;
+        if (retry && n < NOTIFY_RETRY_MINUTES.length) {
+          const again = pendingCommentNotify();
+          if (!again.some((y) => y.task === x.task && y.comment === x.comment)) {
+            again.push({ task: x.task, comment: x.comment, n: n + 1, after: Date.now() + NOTIFY_RETRY_MINUTES[n] * 60000 });
+            setPendingCommentNotify(again);
+          }
+        }
+      }
+    } finally {
+      cloud.commentNotifying = false;
+    }
+    // Comments posted while the requests above were running.
+    if (pendingCommentNotify().some((x) => !(x.after > Date.now()))) sendCommentMails();
+  }
+
   // ---------- Deep link (?gorev=No) ----------
 
   function openDeepLinkedTask() {
     const params = new URLSearchParams(location.search);
     if (!params.has('gorev')) return;
     const raw = params.get('gorev');
+    const commentId = params.get('yorum');
     params.delete('gorev');
+    params.delete('yorum');
     const qs = params.toString();
     history.replaceState(history.state, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`);
     const no = /^[1-9][0-9]{0,6}$/.test(raw) ? Number(raw) : null;
     const task = no ? data.tasks.find((t) => t.no === no) : null;
+    comm.focusId = commentId && /^[\w-]{1,64}$/.test(commentId) ? commentId : null;
     if (task) openTaskDialog(task);
     else toast(`#${raw} numaralı görev bulunamadı.`);
   }
@@ -2946,9 +3391,10 @@
       btn.addEventListener('click', closeTaskDialog);
     });
     $('#task-dialog').addEventListener('cancel', (e) => { e.preventDefault(); closeTaskDialog(); });
-    $('#task-dialog').addEventListener('close', () => { desc.token += 1; attach.token += 1; attach.taskId = null; });
+    $('#task-dialog').addEventListener('close', () => { desc.token += 1; attach.token += 1; attach.taskId = null; comm.token += 1; comm.taskId = null; comm.editing = null; closeMentions(); });
     setupEditor();
     setupAttachments();
+    setupComments();
     if (!richTasks) document.body.classList.add('no-task-extras');
     $('#task-delete').addEventListener('click', async () => {
       if (editingTask && await deleteTask(editingTask)) $('#task-dialog').close();

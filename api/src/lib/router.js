@@ -4,11 +4,13 @@
 //   /db/<path>.json          Firebase RTDB compatible data API (Authorization: Bearer <idToken>)
 //   /auth/<action>           sign-in API
 //   /assignment-notify       assignment mail
+//   /comment-notify          comment mail (@mentions + task owner)
 //   /health                  liveness check
 
 const { createDb } = require('./db');
 const { createAuth } = require('./auth');
 const { handleNotify } = require('./notify');
+const { handleCommentNotify } = require('./comments');
 const { jsonDoc } = require('./store');
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization,content-type', 'Access-Control-Allow-Methods': 'GET,PUT,PATCH,DELETE,POST,OPTIONS' };
@@ -57,6 +59,16 @@ function createApi(deps) {
         let body = null;
         try { body = JSON.parse(req.body || '{}'); } catch (e) { return reply(400, { error: 'Geçersiz istek.' }); }
         const res = await handleNotify({ ...deps, db }, { email, body });
+        return reply(res.status, res.body);
+      }
+
+      if (path === 'comment-notify') {
+        if (req.method !== 'POST') return reply(405, { error: 'Method not allowed' });
+        const email = auth.verifyAccess(bearer(req.headers));
+        if (!email) return reply(401, { error: 'Oturum doğrulanamadı.' });
+        let body = null;
+        try { body = JSON.parse(req.body || '{}'); } catch (e) { return reply(400, { error: 'Geçersiz istek.' }); }
+        const res = await handleCommentNotify({ ...deps, db }, { email, body });
         return reply(res.status, res.body);
       }
 
