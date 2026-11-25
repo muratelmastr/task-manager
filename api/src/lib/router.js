@@ -76,7 +76,7 @@ function createApi(deps) {
     }
   }
 
-  return { handle, db, auth, doc, authDoc };
+  return { handle, db, auth, doc, authDoc, adapter: deps.adapter };
 }
 
 module.exports = { createApi };
