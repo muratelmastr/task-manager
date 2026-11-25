@@ -63,6 +63,35 @@
     try { return dateFmt.formatRange(a, b); } catch (e) { return `${dateFmt.format(a)} – ${dateFmt.format(b)}`; }
   }
 
+  // Returns makeCollapsible(section, key, title): adds an icon-only expand/collapse toggle to a report
+  // card's title (.ts-card-title) for its .ts-table-wrap body; the state is remembered per card.
+  function collapsible({ el, icon }, storageKey, idPrefix) {
+    const collapsedSet = () => { try { return new Set(JSON.parse(localStorage.getItem(storageKey)) || []); } catch (e) { return new Set(); } };
+    return function makeCollapsible(section, key, title) {
+      const body = section.querySelector('.ts-table-wrap');
+      body.id = `${idPrefix}-card-body-${key}`;
+      const btn = el('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm ts-collapse', 'aria-controls': body.id }, icon('chevron-down', 'icon-sm'));
+      const apply = (collapsed) => {
+        body.hidden = collapsed;
+        section.classList.toggle('is-collapsed', collapsed);
+        btn.setAttribute('aria-expanded', String(!collapsed));
+        btn.setAttribute('aria-label', `${title} bölümünü ${collapsed ? 'genişlet' : 'daralt'}`);
+        btn.title = collapsed ? 'Genişlet' : 'Daralt';
+      };
+      btn.addEventListener('click', () => {
+        const set = collapsedSet();
+        const collapsed = !set.has(key);
+        if (collapsed) set.add(key); else set.delete(key);
+        localStorage.setItem(storageKey, JSON.stringify([...set]));
+        apply(collapsed);
+      });
+      section.dataset.card = key;
+      section.querySelector('.ts-card-title').append(btn);
+      apply(collapsedSet().has(key));
+      return section;
+    };
+  }
+
   const query = (params) => Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(JSON.stringify(v))}`).join('&');
   const str = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
@@ -350,34 +379,7 @@
         el('span', { class: 'ts-pct', textContent: `%${num.format(Math.round(pct))}` }));
     };
 
-    const COLLAPSE_KEY = 'taskManager.tsCollapsed';
-    const collapsedSet = () => { try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)) || []); } catch (e) { return new Set(); } };
-
-    // Adds an icon-only expand/collapse toggle to a report card's title; the state is remembered per card.
-    function makeCollapsible(section, key, title) {
-      const body = section.querySelector('.ts-table-wrap');
-      body.id = `ts-card-body-${key}`;
-      const btn = el('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm ts-collapse', 'aria-controls': body.id }, icon('chevron-down', 'icon-sm'));
-      const apply = (collapsed) => {
-        body.hidden = collapsed;
-        section.classList.toggle('is-collapsed', collapsed);
-        btn.setAttribute('aria-expanded', String(!collapsed));
-        const label = `${title} bölümünü ${collapsed ? 'genişlet' : 'daralt'}`;
-        btn.setAttribute('aria-label', label);
-        btn.title = collapsed ? 'Genişlet' : 'Daralt';
-      };
-      btn.addEventListener('click', () => {
-        const set = collapsedSet();
-        const collapsed = !set.has(key);
-        if (collapsed) set.add(key); else set.delete(key);
-        localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set]));
-        apply(collapsed);
-      });
-      section.dataset.card = key;
-      section.querySelector('.ts-card-title').append(btn);
-      apply(collapsedSet().has(key));
-      return section;
-    }
+    const makeCollapsible = collapsible({ el, icon }, 'taskManager.tsCollapsed', 'ts');
 
     function reportTable(title, iconName, headers, rows, total) {
       return el('section', { class: 'ts-card ts-report-card' },
@@ -805,5 +807,12 @@
     return { render, load, openEntry, setTab, tab: () => S.tab, taskEntries, isSelectable, formatHours, sum, isOpen: () => $('#ts-dialog').open };
   }
 
-  window.TaskTimesheet = { create, parseHours, presetRange, dayNumber };
+  window.TaskTimesheet = {
+    create,
+    parseHours,
+    presetRange,
+    dayNumber,
+    // Shared with the task report (report.js).
+    util: { isoOf, parseIso, addDays, todayIso, isIso, presetRange, rangeLabel, collapsible },
+  };
 })();

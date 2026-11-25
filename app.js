@@ -465,7 +465,7 @@
   const ui = {
     view: (() => {
       const v = localStorage.getItem(VIEW_KEY);
-      return v === 'board' || (v === 'timesheet' && timesheetEnabled) ? v : 'list';
+      return v === 'board' || v === 'report' || (v === 'timesheet' && timesheetEnabled) ? v : 'list';
     })(),
     shownCount: 0,
     showCompleted: false,
@@ -576,12 +576,15 @@
     $('#list-view').hidden = view !== 'list';
     $('#board-view').hidden = view !== 'board';
     $('#timesheet-view').hidden = view !== 'timesheet';
+    $('#report-view').hidden = view !== 'report';
     document.body.classList.toggle('view-timesheet', view === 'timesheet');
+    document.body.classList.toggle('view-report', view === 'report');
     document.body.classList.toggle('view-board', view === 'board');
     placeSummaryBar(view === 'board');
     renderNav();
     if (view === 'board') renderBoard();
     else if (view === 'timesheet') { if (timesheet) timesheet.render(); }
+    else if (view === 'report') { ui.loadingShown = isInitialLoading(); report.render(); }
     else renderTable();
   }
 
@@ -980,6 +983,7 @@
   let editingTask = null;
   let savingTask = false;
   let timesheet = null; // Timesheet module (signed-in mode)
+  let report = null; // Görev raporu module
   let taskTimeToken = 0;
 
   // Task details: total time logged on the task and who logged it.
@@ -3340,6 +3344,7 @@
   const PAGE_TITLES = {
     list: ['Görevler', 'Liste'],
     board: ['Görevler', 'Board'],
+    report: ['Görevler', 'Rapor'],
     'timesheet:entries': ['Timesheet', 'Girişler'],
     'timesheet:report': ['Timesheet', 'Rapor'],
   };
@@ -3357,7 +3362,7 @@
     $('#page-section').lang = section === 'Timesheet' ? 'en' : '';
     $('#page-title').textContent = title;
     document.title = `${title} · ${section} – Ekip Görev Takibi`;
-    $('#btn-add').hidden = ui.view === 'timesheet';
+    $('#btn-add').hidden = ui.view === 'timesheet' || ui.view === 'report';
     $('#ts-add').hidden = ui.view !== 'timesheet';
   }
 
@@ -3420,6 +3425,14 @@
       });
       timesheet.setTab(localStorage.getItem(TS_TAB_KEY));
     }
+    report = window.TaskReport.create({
+      $, el, icon, buildAvatar, toneFor, DONE, loadSheetJs,
+      tasks: () => data.tasks,
+      lists: () => data.lists,
+      fullNameOf: (name) => (name ? displayName(name) : '—'),
+      openTask: (task) => openTaskDialog(task),
+      isLoading: () => isInitialLoading(),
+    });
 
     $('#search').addEventListener('input', (e) => {
       ui.search = e.target.value;

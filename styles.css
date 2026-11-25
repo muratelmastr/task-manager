@@ -1568,7 +1568,8 @@ body.auth-locked > :not(#login-screen):not(svg):not(.toast) { display: none !imp
 /* ==========================================================================
    Timesheet
    ========================================================================== */
-body.view-timesheet .toolbar, body.view-timesheet .summary-bar { display: none; }
+body.view-timesheet .toolbar, body.view-timesheet .summary-bar,
+body.view-report .toolbar, body.view-report .summary-bar { display: none; }
 body.view-board .filter-control[data-filter="durum"],
 body.view-board #show-completed-switch,
 body.view-board .summary .stat:not([data-due]) { display: none; }
@@ -1678,6 +1679,22 @@ button.ts-task:hover .ts-task-title { color: var(--color-primary); text-decorati
 .ts-daily tbody tr.is-today th, .ts-daily tbody tr.is-today td { background: var(--color-primary-soft); }
 .ts-daily tbody tr.is-today th { color: var(--color-primary-hover); font-weight: 700; }
 
+/* Görev raporu */
+.rp-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.rp-kpi-hint { font-size: var(--font-xs); color: var(--color-text-muted); }
+.rp-kpi-closed .ts-kpi-value { color: var(--color-success-text); }
+.rp-kpi-overdue .ts-kpi-value { color: var(--color-danger-text); }
+.rp-table th, .rp-table td { padding: 8px 10px; }
+.rp-table th:first-child, .rp-table td:first-child { padding-left: var(--space-4); }
+.rp-table .bar-col { width: 20%; }
+.rp-table .ts-bar-cell { min-width: 72px; }
+.rp-bar-fill { background: var(--color-success); }
+.ts-table td.rp-overdue:not(.is-zero) { color: var(--color-danger-text); font-weight: 600; }
+.rp-tasks td:first-child { max-width: 420px; }
+@media (max-width: 1599px) {
+  .ts-report-grid.rp-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Entry dialog */
 .combo { position: relative; }
 .combo-icon { position: absolute; top: 12px; left: 11px; color: var(--color-text-muted); pointer-events: none; }
@@ -1745,6 +1762,7 @@ button.ts-task:hover .ts-task-title { color: var(--color-primary); text-decorati
   .ts-filter { flex: 1 1 140px; }
   .ts-filter .select { flex: 1; max-width: none; }
   .ts-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-kpis .ts-kpi:first-child { grid-column: 1 / -1; }
   .ts-report-grid { grid-template-columns: 1fr; }
   .ts-row { flex-wrap: wrap; gap: 4px var(--space-2); }
   .ts-row > .ts-who { flex-basis: 100%; }

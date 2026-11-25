@@ -122,6 +122,7 @@
         <span class="nav-group-title" id="nav-group-tasks">Görevler</span>
         <button type="button" class="nav-item view-btn" data-view="list" title="Liste"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span class="nav-label">Liste</span></button>
         <button type="button" class="nav-item view-btn" data-view="board" title="Board"><svg class="icon" aria-hidden="true"><use href="#i-board"/></svg><span class="nav-label">Board</span></button>
+        <button type="button" class="nav-item view-btn" data-view="report" title="Rapor"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span class="nav-label">Rapor</span></button>
       </div>
       <div class="nav-group" id="nav-group-timesheet" role="group" aria-labelledby="nav-group-ts" hidden>
         <span class="nav-group-title" id="nav-group-ts" lang="en">Timesheet</span>
@@ -259,6 +260,34 @@
       </div>
       <p id="ts-range" class="ts-range"></p>
       <div id="ts-body" class="ts-body" aria-live="polite"></div>
+    </section>
+
+    <section id="report-view" class="ts-view rp-view" aria-label="Görev raporu" hidden>
+      <div class="ts-toolbar">
+        <div class="ts-filters">
+          <label class="ts-filter"><span class="ts-filter-label">Dönem</span>
+            <select id="rp-period" class="select select-sm">
+              <option value="thisMonth">Bu ay</option>
+              <option value="lastMonth">Geçen ay</option>
+              <option value="thisWeek">Bu hafta</option>
+              <option value="last30">Son 30 gün</option>
+              <option value="custom">Özel aralık…</option>
+            </select>
+          </label>
+          <span id="rp-custom" class="ts-custom" hidden>
+            <input type="date" id="rp-from" class="input input-sm" aria-label="Başlangıç tarihi">
+            <span aria-hidden="true">–</span>
+            <input type="date" id="rp-to" class="input input-sm" aria-label="Bitiş tarihi">
+          </span>
+          <label class="ts-filter"><span class="ts-filter-label">Kişi</span><select id="rp-kisi" class="select select-sm"></select></label>
+          <label class="ts-filter"><span class="ts-filter-label">Alan</span><select id="rp-alan" class="select select-sm"></select></label>
+        </div>
+        <div class="ts-actions">
+          <button type="button" id="rp-export" class="btn"><svg class="icon" aria-hidden="true"><use href="#i-sheet"/></svg><span class="btn-label">Excel'e Aktar</span></button>
+        </div>
+      </div>
+      <p id="rp-range" class="ts-range"></p>
+      <div id="rp-body" class="ts-body" aria-live="polite"></div>
     </section>
   </main>
 
@@ -439,6 +468,7 @@
 
   <script src="cloud.js"></script>
   <script src="timesheet.js"></script>
+  <script src="report.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
