@@ -813,6 +813,6 @@
     presetRange,
     dayNumber,
     // Shared with the task report (report.js).
-    util: { isoOf, parseIso, addDays, todayIso, isIso, presetRange, rangeLabel, collapsible },
+    util: { isoOf, parseIso, addDays, todayIso, isIso, presetRange, rangeLabel },
   };
 })();

@@ -1690,7 +1690,6 @@ button.ts-task:hover .ts-task-title { color: var(--color-primary); text-decorati
 .rp-table .ts-bar-cell { min-width: 72px; }
 .rp-bar-fill { background: var(--color-success); }
 .ts-table td.rp-overdue:not(.is-zero) { color: var(--color-danger-text); font-weight: 600; }
-.rp-tasks td:first-child { max-width: 420px; }
 @media (max-width: 1599px) {
   .ts-report-grid.rp-grid { grid-template-columns: minmax(0, 1fr); }
 }

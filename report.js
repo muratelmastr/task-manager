@@ -8,19 +8,15 @@
 
   const NONE = '__none__';
 
-  // app: { $, el, icon, DONE, tasks(), lists(), fullNameOf(name), buildAvatar, toneFor, openTask(task),
-  //        loadSheetJs, isLoading() }
+  // app: { $, el, icon, DONE, tasks(), lists(), fullNameOf(name), buildAvatar, toneFor, loadSheetJs, isLoading() }
   function create(app) {
     const { $, el, icon, DONE } = app;
     const U = window.TaskTimesheet.util;
-    const makeCollapsible = U.collapsible({ el, icon }, 'taskManager.rpCollapsed', 'rp');
     const num = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 });
-    const shortDate = new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const S = { preset: 'thisMonth', custom: U.presetRange('thisMonth'), kisi: '', alan: '' };
 
     const range = () => U.presetRange(S.preset, S.custom);
     const dayOf = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? null : U.isoOf(d); };
-    const fmtDay = (day) => (day ? shortDate.format(U.parseIso(day)) : '–');
     const ownerName = (key) => (key ? app.fullNameOf(key) : '(Atanmamış)');
     const alanName = (key) => key || '(Alan yok)';
     const pct = (part, whole) => (whole ? Math.round((part / whole) * 100) : 0);
@@ -217,8 +213,7 @@
       const grid = el('div', { class: 'ts-report-grid rp-grid' },
         countTable('Kişi bazında', 'user', 'Kişi', people, whoCell, total),
         countTable('Alan bazında', 'board', 'Alan', alanlar, alanTag, total));
-      const tasks = makeCollapsible(buildTaskList(rows), 'tasks', 'Görevler');
-      return [kpis, grid, buildMatrix(rows, people, alanlar, total), tasks];
+      return [kpis, grid, buildMatrix(rows, people, alanlar, total)];
     }
 
     function buildMatrix(rows, people, alanlar, total) {
@@ -249,33 +244,6 @@
     const sortRows = (rows) => [...rows].sort((a, b) => stateRank(a) - stateRank(b)
       || (a.task.no || Infinity) - (b.task.no || Infinity) || a.createdDay.localeCompare(b.createdDay));
     const stateLabel = (r) => (r.closed ? 'Kapatıldı' : r.overdue ? 'Gecikmiş' : 'Devam ediyor');
-
-    function stateBadge(r) {
-      const cls = r.closed ? 'badge badge-success' : r.overdue ? 'badge badge-danger' : 'badge';
-      return el('span', { class: cls, title: `Şu anki durum: ${r.task.durum}`, textContent: stateLabel(r) });
-    }
-
-    function buildTaskList(rows) {
-      const head = headRow([{ label: 'Görev' }, { label: 'Alan' }, { label: 'Sahip' }, { label: 'Dönem sonunda' },
-        { label: 'Oluşturma' }, { label: 'Tamamlanma tarihi', title: 'Hedef tarih' }, { label: 'Kapanış' }]);
-      const body = sortRows(rows).map((r) => {
-        const t = r.task;
-        return el('tr', { dataset: { id: t.id } },
-          el('td', {}, el('button', { type: 'button', class: 'ts-task', title: 'Görev detayını aç', onclick: () => app.openTask(t) },
-            t.no ? el('span', { class: 'ts-no', textContent: `#${t.no}` }) : null,
-            el('span', { class: 'ts-task-title', textContent: t.gorev || '(İsimsiz görev)' }))),
-          el('td', {}, alanTag(t.alan)),
-          el('td', {}, whoCell(t.sahip || '')),
-          el('td', {}, stateBadge(r)),
-          el('td', { textContent: fmtDay(r.createdDay === '0000-01-01' ? null : r.createdDay) }),
-          el('td', { class: r.overdue ? 'rp-overdue' : '', textContent: fmtDay(t.tamamlanmaTarihi || null) }),
-          el('td', { textContent: fmtDay(r.closedDay) }));
-      });
-      return el('section', { class: 'ts-card ts-report-card ts-report-wide' },
-        el('h3', { class: 'ts-card-title' }, icon('list', 'icon-sm'), `Görevler (${num.format(rows.length)})`),
-        el('div', { class: 'ts-table-wrap' },
-          el('table', { class: 'ts-table rp-tasks' }, el('thead', {}, head), el('tbody', {}, ...body))));
-    }
 
     // ---------- Excel ----------
 

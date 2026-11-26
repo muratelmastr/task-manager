@@ -3430,7 +3430,6 @@
       tasks: () => data.tasks,
       lists: () => data.lists,
       fullNameOf: (name) => (name ? displayName(name) : '—'),
-      openTask: (task) => openTaskDialog(task),
       isLoading: () => isInitialLoading(),
     });
 
