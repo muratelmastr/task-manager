@@ -601,6 +601,15 @@ body.sidebar-collapsed .app-shell { grid-template-columns: var(--sidebar-w-colla
 .menu-item .icon { color: var(--color-text-muted); }
 .menu-item:hover, .menu-item:focus-visible { background: var(--color-surface-hover); outline: none; }
 .menu-separator { height: 1px; margin: var(--space-1) 0; background: var(--color-border); }
+.menu-item:disabled { color: var(--color-text-muted); cursor: not-allowed; opacity: .6; }
+.menu-item:disabled:hover { background: transparent; }
+.menu-item-danger:not(:disabled), .menu-item-danger:not(:disabled) .icon { color: var(--color-danger-text); }
+.menu-item-danger:not(:disabled):hover, .menu-item-danger:not(:disabled):focus-visible { background: var(--color-danger-soft); }
+
+/* Right-click menu on tasks (list rows, board cards) */
+.context-menu { position: fixed; top: 0; right: auto; left: 0; z-index: 90; min-width: 190px; transform-origin: top left; }
+#task-table tr.is-context td { background: var(--color-surface-hover); }
+.card.is-context { outline: 2px solid var(--color-primary-border); outline-offset: 1px; }
 
 main { padding: var(--space-4) var(--space-5); }
 

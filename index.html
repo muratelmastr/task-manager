@@ -61,6 +61,7 @@
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
     <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
   </svg>
 
   <div id="login-screen" class="login-screen" hidden>
@@ -423,6 +424,12 @@
       <button type="button" id="image-dialog-close" class="btn btn-primary">Kapat</button>
     </div>
   </dialog>
+
+  <div id="task-context-menu" class="menu-list context-menu" role="menu" aria-label="Görev işlemleri" hidden>
+    <button type="button" role="menuitem" id="ctx-duplicate" class="menu-item" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Kopya Oluştur</button>
+    <div class="menu-separator" role="separator"></div>
+    <button type="button" role="menuitem" id="ctx-delete" class="menu-item menu-item-danger" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Sil</button>
+  </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
