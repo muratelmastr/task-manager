@@ -4057,7 +4057,7 @@
     $('#page-section').textContent = section;
     $('#page-section').lang = section === 'Timesheet' ? 'en' : '';
     $('#page-title').textContent = title;
-    document.title = `${title} · ${section} – Ekip Görev Takibi`;
+    document.title = `${title} · ${section} – SkyTrack`;
     $('#btn-add').hidden = ui.view === 'timesheet' || ui.view === 'report';
     $('#ts-add').hidden = ui.view !== 'timesheet';
   }

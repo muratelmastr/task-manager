@@ -14,10 +14,10 @@
   --color-text-muted: #667085;
   --color-text-placeholder: #6b7280;
   --color-on-primary: #ffffff;
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-soft: #eef4ff;
-  --color-primary-border: #b2ccff;
+  --color-primary: #1d6ff2;
+  --color-primary-hover: #1559c9;
+  --color-primary-soft: #edf4ff;
+  --color-primary-border: #b5d3ff;
   --color-danger: #d92d20;
   --color-danger-hover: #b42318;
   --color-danger-text: #b42318;
@@ -55,7 +55,7 @@
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, .06);
   --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, .1), 0 2px 4px -2px rgba(16, 24, 40, .06);
   --shadow-lg: 0 20px 24px -4px rgba(16, 24, 40, .12), 0 8px 8px -4px rgba(16, 24, 40, .04);
-  --focus-ring: 0 0 0 3px rgba(37, 99, 235, .3);
+  --focus-ring: 0 0 0 3px rgba(29, 111, 242, .3);
 
   /* Typography */
   --font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
@@ -413,19 +413,9 @@ body.sidebar-collapsed .app-shell { grid-template-columns: var(--sidebar-w-colla
   border-right: 1px solid var(--color-border);
 }
 .sidebar-head { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; padding: 0 2px var(--space-3); }
-.brand { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; }
-.brand-name { overflow: hidden; font-size: var(--font-md); font-weight: 700; letter-spacing: -.01em; white-space: nowrap; text-overflow: ellipsis; }
-.brand-mark {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  color: var(--color-on-primary);
-  background: var(--color-primary);
-  border-radius: 9px;
-}
-.brand-mark .icon { width: 18px; height: 18px; }
+.brand { display: flex; flex: 1; align-items: center; min-width: 0; padding-left: 6px; }
+.brand-logo { display: block; width: auto; height: 28px; }
+.brand-logo-mark { display: none; width: 32px; height: 32px; }
 .sidebar-collapse, .sidebar-close { flex: none; color: var(--color-text-muted); }
 .sidebar-close { display: none; }
 
@@ -500,8 +490,9 @@ body.sidebar-collapsed .app-shell { grid-template-columns: var(--sidebar-w-colla
 @media (min-width: 769px) {
   body.sidebar-collapsed .sidebar { padding-right: 10px; padding-left: 10px; }
   body.sidebar-collapsed .sidebar-head { flex-direction: column; gap: var(--space-2); padding-right: 0; padding-left: 0; }
-  body.sidebar-collapsed .brand { flex: none; }
-  body.sidebar-collapsed .brand-name,
+  body.sidebar-collapsed .brand { flex: none; padding-left: 0; }
+  body.sidebar-collapsed .brand-logo-mark { display: block; }
+  body.sidebar-collapsed .brand-logo,
   body.sidebar-collapsed .nav-label,
   body.sidebar-collapsed .menu-chevron,
   body.sidebar-collapsed .user-text,
@@ -1620,10 +1611,8 @@ body.auth-locked > :not(#login-screen):not(svg):not(.toast) { display: none !imp
   box-shadow: var(--shadow-lg);
   animation: menu-in var(--duration) var(--ease);
 }
-.login-brand { display: flex; align-items: center; gap: 10px; }
-.login-brand .brand-mark { width: 36px; height: 36px; border-radius: 10px; }
-.login-brand .brand-mark .icon { width: 22px; height: 22px; }
-.login-app-name { font-size: var(--font-lg); font-weight: 700; letter-spacing: -.01em; }
+.login-brand { display: flex; align-items: center; }
+.login-logo { display: block; width: auto; height: 36px; }
 .login-title { margin: var(--space-5) 0 4px; font-size: var(--font-xl); font-weight: 700; letter-spacing: -.01em; }
 .login-subtitle { margin: 0; font-size: var(--font-sm); color: var(--color-text-muted); }
 .login-card .field .input { width: 100%; }

@@ -147,10 +147,10 @@ function layout(inner, note = '') {
 <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:24px">
 ${note}${inner}
 </div>
-<p style="max-width:560px;margin:12px auto 0;font-size:12px;color:#9ca3af">Bu mail Ekip Görev Takibi uygulaması tarafından otomatik gönderildi.</p>
+<p style="max-width:560px;margin:12px auto 0;font-size:12px;color:#9ca3af">Bu mail SkyTrack uygulaması tarafından otomatik gönderildi.</p>
 </body></html>`;
 }
-const button = (link, label) => `<p style="margin:24px 0 0"><a href="${esc(link)}" style="display:inline-block;padding:10px 18px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600">${esc(label)}</a></p>`;
+const button = (link, label) => `<p style="margin:24px 0 0"><a href="${esc(link)}" style="display:inline-block;padding:10px 18px;background:#1d6ff2;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600">${esc(label)}</a></p>`;
 
 function buildAssignmentMail({ task, owner, caller, link, redirected }) {
   const no = task.no ? `#${task.no}` : '';
@@ -186,15 +186,15 @@ ${button(link, 'Görevi aç')}`, note);
 
 function buildResetMail({ user, link }) {
   const name = user.ad || fullName(user);
-  const subject = 'Ekip Görev Takibi – şifre belirleme';
+  const subject = 'SkyTrack – şifre belirleme';
   const html = layout(`<p style="margin:0 0 8px;font-size:15px">Merhaba ${esc(name)},</p>
-<p style="margin:0 0 8px;font-size:15px">Ekip Görev Takibi hesabınız (${esc(user.email)}) için şifre belirleme isteği aldık. Yeni şifrenizi aşağıdaki bağlantıdan belirleyebilirsiniz.</p>
+<p style="margin:0 0 8px;font-size:15px">SkyTrack hesabınız (${esc(user.email)}) için şifre belirleme isteği aldık. Yeni şifrenizi aşağıdaki bağlantıdan belirleyebilirsiniz.</p>
 <p style="margin:0;font-size:13px;color:#6b7280">Bağlantı 1 saat geçerlidir ve yalnızca bir kez kullanılabilir. Bu isteği siz yapmadıysanız bu maili dikkate almayın; şifreniz değişmez.</p>
 ${button(link, 'Yeni şifre belirle')}`);
   const text = [
     `Merhaba ${name},`,
     '',
-    `Ekip Görev Takibi hesabınız (${user.email}) için şifre belirleme isteği aldık. Yeni şifrenizi aşağıdaki bağlantıdan belirleyebilirsiniz:`,
+    `SkyTrack hesabınız (${user.email}) için şifre belirleme isteği aldık. Yeni şifrenizi aşağıdaki bağlantıdan belirleyebilirsiniz:`,
     link,
     '',
     'Bağlantı 1 saat geçerlidir ve yalnızca bir kez kullanılabilir. Bu isteği siz yapmadıysanız bu maili dikkate almayın.',
@@ -221,7 +221,7 @@ function buildOverdueMail({ user, tasks, appUrl, redirected }) {
     : '';
   const th = 'padding:8px 10px;text-align:left;font-size:12px;font-weight:600;color:#6b7280;background:#f5f6f8;border-bottom:1px solid #e5e7eb';
   const td = 'padding:9px 10px;border-bottom:1px solid #f0f1f3;vertical-align:top';
-  const rows = tasks.map((t) => `<tr><td style="${td}"><a href="${esc(linkOf(t))}" style="color:#2563eb;text-decoration:none;font-weight:600">${esc(title(t))}</a></td><td style="${td};white-space:nowrap">${esc(formatDate(t.tamamlanmaTarihi))}</td><td style="${td};white-space:nowrap;text-align:right;font-weight:700;color:${t.days > 0 ? '#b91c1c' : '#b45309'}">${esc(dayLabel(t))}</td></tr>`).join('');
+  const rows = tasks.map((t) => `<tr><td style="${td}"><a href="${esc(linkOf(t))}" style="color:#1d6ff2;text-decoration:none;font-weight:600">${esc(title(t))}</a></td><td style="${td};white-space:nowrap">${esc(formatDate(t.tamamlanmaTarihi))}</td><td style="${td};white-space:nowrap;text-align:right;font-weight:700;color:${t.days > 0 ? '#b91c1c' : '#b45309'}">${esc(dayLabel(t))}</td></tr>`).join('');
   const html = layout(`<p style="margin:0 0 8px;font-size:15px">Merhaba ${esc(name)},</p>
 <p style="margin:0 0 16px;font-size:15px">${esc(intro)} Görevi açmak için adına tıklayın.</p>
 <table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr><th style="${th}">Görev</th><th style="${th}">Tamamlanma Tarihi</th><th style="${th};text-align:right">Gecikme</th></tr></thead><tbody>${rows}</tbody></table>
@@ -248,7 +248,7 @@ function commentHtml(text, mentionRe) {
     mentionRe.lastIndex = 0;
     for (let m = mentionRe.exec(src); m; m = mentionRe.exec(src)) {
       const at = m.index + m[1].length;
-      out += esc(src.slice(last, at)) + `<strong style="color:#2563eb">${esc(src.slice(at, mentionRe.lastIndex))}</strong>`;
+      out += esc(src.slice(last, at)) + `<strong style="color:#1d6ff2">${esc(src.slice(at, mentionRe.lastIndex))}</strong>`;
       last = mentionRe.lastIndex;
     }
   }
@@ -271,8 +271,8 @@ function buildCommentMail({ task, comment, caller, recipient, reason, link, redi
     : '';
   const html = layout(`<p style="margin:0 0 8px;font-size:15px">Merhaba ${esc(recipient.ad || fullName(recipient))},</p>
 <p style="margin:0 0 16px;font-size:15px">${esc(intro)}</p>
-<p style="margin:0 0 8px;font-size:14px"><a href="${esc(link)}" style="color:#2563eb;text-decoration:none;font-weight:600">${esc(title)}</a></p>
-<div style="margin:0;padding:12px 14px;background:#f5f6f8;border-left:3px solid #2563eb;border-radius:6px">
+<p style="margin:0 0 8px;font-size:14px"><a href="${esc(link)}" style="color:#1d6ff2;text-decoration:none;font-weight:600">${esc(title)}</a></p>
+<div style="margin:0;padding:12px 14px;background:#f5f6f8;border-left:3px solid #1d6ff2;border-radius:6px">
 <p style="margin:0 0 6px;font-size:12px;color:#6b7280"><strong style="color:#374151">${esc(who)}</strong>${whenText ? ` · ${esc(whenText)}` : ''}${edited ? ' · düzenlendi' : ''}</p>
 <p style="margin:0;font-size:14px;line-height:1.5">${commentHtml(comment.metin, mentionRe)}</p>
 </div>
