@@ -1143,6 +1143,74 @@ body.is-dragging .board-column { border-color: var(--color-border-strong); borde
 
 .card-skeleton { gap: 10px; cursor: default; }
 .card-skeleton:hover { border-color: var(--color-border); box-shadow: var(--shadow-sm); transform: none; }
+
+/* Quick edits on cards: Sahip, Öncelik, Alan, Tamamlanma Tarihi and the title are buttons */
+:where(.card-field) {
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease, opacity var(--duration-fast) ease;
+}
+.card-field:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.card-meta .card-field { height: 22px; margin: 0 -6px; padding: 0 6px; }
+.card-meta .card-sahip { min-width: 0; max-width: calc(100% + 12px); }
+.card-field-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta .card-field:hover, .card-meta .card-field.is-open,
+.card-title.card-field:hover { background: var(--color-surface-hover); }
+.card-field.tag:hover, .card-field.tag.is-open { box-shadow: 0 0 0 2px var(--tone-border); }
+.card-field.prio-chip:hover, .card-field.prio-chip.is-open { box-shadow: 0 0 0 2px var(--prio-border); }
+.card-top [data-field="alan"] { min-width: 0; margin-right: auto; }
+.card-top [data-field="oncelik"] { flex: none; margin-left: auto; }
+.card-title.card-field { width: auto; max-width: calc(100% + 8px); margin: -2px -4px; padding: 2px 4px; }
+.card-title-input {
+  width: calc(100% + 8px);
+  margin: -3px -4px;
+  padding: 2px 4px;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  outline: none;
+  box-shadow: var(--focus-ring);
+  cursor: text;
+}
+
+/* Empty Öncelik/Alan/Tarih: shown while the card is hovered or focused */
+.card-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  opacity: 0;
+}
+.card-top .card-placeholder { height: 22px; padding: 0 var(--space-2) 0 6px; border: 1px dashed var(--color-border-strong); }
+.card-top [data-field="oncelik"].card-placeholder { border-radius: var(--radius-full); }
+.card-top .card-placeholder:hover, .card-top .card-placeholder.is-open { color: var(--color-text-secondary); background: var(--color-surface-hover); }
+.card:hover .card-placeholder, .card:focus-within .card-placeholder, .card-placeholder.is-open { opacity: 1; }
+@media (hover: none) { .card-placeholder { opacity: 1; } }
+
+/* Hidden date input under the date button; it only hosts the browser's calendar */
+.card-date-wrap { position: relative; display: inline-flex; }
+.card-date-input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+
+.card-picker { min-width: 200px; max-width: 300px; max-height: min(320px, calc(100vh - 16px)); overflow-y: auto; }
+.card-picker .menu-item[aria-selected="true"] { font-weight: 600; }
+.menu-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-item .menu-item-check { flex: none; color: var(--color-primary); }
+.card-picker-prio { display: inline-grid; flex: none; place-items: center; width: 20px; }
+.card-picker-prio .icon { color: var(--prio-color, var(--color-text-muted)); }
 /* ==========================================================================
    9. Dialogs
    ========================================================================== */
