@@ -171,7 +171,7 @@
             ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 120"
           },
           "metin": {
-            ".validate": "newData.isString() && newData.val().trim().length >= 1 && newData.val().length <= 300"
+            ".validate": "newData.isString() && newData.val().trim().length >= 1 && newData.val().length <= 600"
           },
           "tarih": {
             ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 40"

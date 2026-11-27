@@ -7,7 +7,7 @@
 //               /details/{key} = { aciklama (sanitized HTML), updatedAt, updatedBy }
 //               /attachments/{key}/{fileId} = { ad, boyut, tur, yukleyen, yuklenmeTarihi, parca }
 //               /files/{key}/{fileId} = { yukleyen, p: { 0: base64, 1: base64, ... } }
-//               /comments/{key}/{commentId} = { yazan, metin (≤ 300), tarih, duzenlenme? } (Azure API only)
+//               /comments/{key}/{commentId} = { yazan, metin (≤ 600), tarih, duzenlenme? } (Azure API only)
 //               /commentMails/{key}/{commentId} = { <kullaniciAdi>: mailed at } (written by the API)
 (() => {
   'use strict';
