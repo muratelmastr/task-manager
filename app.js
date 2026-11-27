@@ -24,7 +24,7 @@
   const commentsEnabled = !!auth && !!config.apiUrl;
   const commentNotifyUrl = commentsEnabled ? `${String(config.apiUrl).replace(/\/+$/, '')}/comment-notify` : '';
   const COMMENT_NOTIFY_KEY = 'taskManager.commentNotifyPending';
-  const MAX_COMMENT = 300;
+  const MAX_COMMENT = 600;
   const MAX_FILE_BYTES = 10 * 1024 * 1024;
   const CHUNK_BYTES = 384 * 1024; // 512 KB once base64-encoded
   const LOGIN_MESSAGE_KEY = 'taskManager.loginMessage';
@@ -1598,7 +1598,7 @@
   }
 
   // ---------- Comments (signed-in Azure mode) ----------
-  // /comments/{task}/{id} = { yazan, metin (≤ 300), tarih, duzenlenme? }. Everyone writes only their
+  // /comments/{task}/{id} = { yazan, metin (≤ 600), tarih, duzenlenme? }. Everyone writes only their
   // own comments. People tagged with @KullaniciAdi and the task owner are mailed by comment-notify.
 
   const comm = { taskId: null, items: [], token: 0, editing: null, editDraft: '', focusEdit: false, busy: false, focusId: null };

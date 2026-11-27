@@ -7,7 +7,7 @@
 const { getAt, splitPath, isObject } = require('./tree');
 
 const COLLECTIONS = ['users', 'tasks', 'lists', 'taskNumbers', 'details', 'attachments', 'files', 'timesheets', 'assignmentMails', 'comments', 'commentMails'];
-const MAX_COMMENT = 300;
+const MAX_COMMENT = 600;
 const DONE = 'Tamamlandı';
 const DAY_MS = 86400000;
 
