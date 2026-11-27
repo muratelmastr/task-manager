@@ -175,16 +175,29 @@
 
   // ---------- Rich text (task descriptions) ----------
 
-  const MAX_DESCRIPTION_CHARS = 100000;
+  // Descriptions may embed images as data URIs: the whole HTML is capped at MAX_DESCRIPTION_CHARS,
+  // the part outside the images at MAX_DESCRIPTION_TEXT_CHARS.
+  const MAX_DESCRIPTION_CHARS = 3000000;
+  const MAX_DESCRIPTION_TEXT_CHARS = 100000;
+  const MAX_IMAGE_BYTES = 1024 * 1024;
+  const MAX_IMAGE_SIDE = 1920;
   // Allowed tags (others are unwrapped, keeping their text) and tag aliases.
-  const RICH_TAGS = new Set(['P', 'BR', 'STRONG', 'EM', 'U', 'S', 'H2', 'H3', 'UL', 'OL', 'LI', 'A', 'BLOCKQUOTE', 'CODE', 'PRE']);
+  const RICH_TAGS = new Set(['P', 'BR', 'STRONG', 'EM', 'U', 'S', 'H2', 'H3', 'UL', 'OL', 'LI', 'A', 'BLOCKQUOTE', 'CODE', 'PRE', 'IMG']);
   const RICH_ALIASES = { B: 'STRONG', I: 'EM', STRIKE: 'S', DEL: 'S', H1: 'H2', H4: 'H3', H5: 'H3', H6: 'H3', DIV: 'P' };
   // Dropped together with their content.
-  const RICH_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'HEAD', 'META', 'LINK', 'TEMPLATE', 'SVG', 'MATH', 'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'FORM', 'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'NOSCRIPT', 'TITLE', 'XML']);
+  const RICH_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'HEAD', 'META', 'LINK', 'TEMPLATE', 'SVG', 'MATH', 'VIDEO', 'AUDIO', 'CANVAS', 'FORM', 'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'NOSCRIPT', 'TITLE', 'XML']);
   const safeHref = (href) => {
     const h = str(href);
     return /^(https?:|mailto:)/i.test(h) ? h : '';
   };
+  // Only embedded raster images: remote/blob sources would leak reads or break after reload.
+  const IMAGE_SRC_RE = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+  const safeImageSrc = (src) => {
+    const s = String(src || '').replace(/\s+/g, '');
+    return IMAGE_SRC_RE.test(s) ? s : '';
+  };
+  const hasContent = (node) => !!(node.textContent.trim() || node.querySelector('img'));
+  const descriptionTextLength = (html) => html.replace(/src="data:[^"]*"/g, 'src=""').length;
 
   // Whitelist sanitizer: parses in an inert document, rebuilds only allowed elements without attributes
   // (links keep a checked href). Used on paste, before saving and before rendering.
@@ -200,6 +213,14 @@
         if (RICH_DROP.has(tag)) continue;
         if (!RICH_TAGS.has(tag)) { copy(node, dest); continue; }
         const elx = document.createElement(tag);
+        if (tag === 'IMG') {
+          const src = safeImageSrc(node.getAttribute('src'));
+          if (!src) continue;
+          elx.setAttribute('src', src);
+          elx.setAttribute('alt', '');
+          dest.append(elx);
+          continue;
+        }
         if (tag === 'A') {
           const href = safeHref(node.getAttribute('href'));
           if (!href) { copy(node, dest); continue; }
@@ -219,7 +240,7 @@
     for (const node of [...out.childNodes]) {
       if (node.nodeType === Node.ELEMENT_NODE && BLOCKS.has(node.nodeName)) {
         para = null;
-        if (node.nodeName === 'P' && !node.textContent.trim()) continue;
+        if (node.nodeName === 'P' && !hasContent(node)) continue;
         normalized.append(node);
       } else if (node.nodeName === 'BR' && para) {
         para = null; // a line break between loose runs starts a new paragraph
@@ -228,10 +249,10 @@
         para.append(node);
       }
     }
-    normalized.querySelectorAll('li').forEach((li) => { if (!li.textContent.trim()) li.remove(); });
+    normalized.querySelectorAll('li').forEach((li) => { if (!hasContent(li)) li.remove(); });
     normalized.querySelectorAll('ul, ol').forEach((list) => { if (!list.children.length) list.remove(); });
-    normalized.querySelectorAll('p').forEach((p) => { if (!p.textContent.trim()) p.remove(); });
-    return normalized.textContent.trim() ? normalized.innerHTML : '';
+    normalized.querySelectorAll('p').forEach((p) => { if (!hasContent(p)) p.remove(); });
+    return hasContent(normalized) ? normalized.innerHTML : '';
   }
 
   // Plain text for Excel export.
@@ -239,6 +260,7 @@
     if (!html) return '';
     const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
     doc.querySelectorAll('br').forEach((b) => b.replaceWith('\n'));
+    doc.querySelectorAll('img').forEach((img) => img.replaceWith(' [Resim] '));
     doc.querySelectorAll('li').forEach((li) => li.prepend('• '));
     doc.querySelectorAll('p, h2, h3, li, blockquote, pre').forEach((b) => b.append('\n'));
     return doc.body.textContent.replace(/\n{3,}/g, '\n\n').trim();
@@ -1018,7 +1040,7 @@
     }
   }
   // Description editor state: the HTML it was loaded with and the server version it is based on.
-  const desc = { original: '', updatedAt: null, loaded: false, token: 0 };
+  const desc = { original: '', updatedAt: null, loaded: false, token: 0, busy: 0 };
 
   const taskKey = (id) => window.TaskCloud.encodeKey(id);
   const displayName = (username) => { const u = userByName(username); return u ? fullName(u) : username; };
@@ -1127,9 +1149,18 @@
 
     // Description: saved first (shared database) so a failed save keeps the dialog open.
     if (richTasks && desc.loaded) {
+      if (desc.busy) {
+        alert('Resimler hâlâ işleniyor. Birkaç saniye sonra tekrar kaydedin.');
+        return;
+      }
       const html = sanitizeHtml($('#desc-editor').innerHTML);
+      const textLength = descriptionTextLength(html);
+      if (textLength > MAX_DESCRIPTION_TEXT_CHARS) {
+        alert(`Açıklama çok uzun (${Math.round(textLength / 1000)} bin karakter). En fazla ${MAX_DESCRIPTION_TEXT_CHARS / 1000} bin karakter olabilir.`);
+        return;
+      }
       if (html.length > MAX_DESCRIPTION_CHARS) {
-        alert(`Açıklama çok uzun (${Math.round(html.length / 1000)} bin karakter). En fazla ${MAX_DESCRIPTION_CHARS / 1000} bin karakter olabilir.`);
+        alert(`Açıklamadaki resimler toplamda çok büyük (${formatSize(html.length)}). En fazla ${formatSize(MAX_DESCRIPTION_CHARS)} olabilir; bazı resimleri kaldırın veya ek olarak yükleyin.`);
         return;
       }
       if (html !== desc.original) {
@@ -1252,9 +1283,198 @@
     return true;
   }
 
+  // ---------- Description images (embedded as data URIs) ----------
+
+  // Images need the signed-in shared database (local mode would fill up localStorage).
+  const imagesEnabled = attachmentsEnabled;
+  const EMBED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+  const isImageFile = (f) => f && /^image\//.test(f.type);
+
+  function loadImageElement(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Resim okunamadı (desteklenmeyen biçim).')); };
+      img.src = url;
+    });
+  }
+
+  const canvasToBlob = (canvas, type, quality) => new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+
+  // Downscales to MAX_IMAGE_SIDE and picks the smallest encoding; returns a data URI.
+  async function imageFileToDataUrl(file) {
+    const img = await loadImageElement(file);
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    if (!w || !h) throw new Error('Resim okunamadı.');
+    const fits = Math.max(w, h) <= MAX_IMAGE_SIDE;
+    // Small GIFs stay untouched so animations survive.
+    if (file.type === 'image/gif' && fits && file.size <= MAX_IMAGE_BYTES) return `data:image/gif;base64,${await blobToBase64(file)}`;
+    const keepOriginal = fits && EMBED_TYPES.includes(file.type) && file.type !== 'image/gif';
+    for (const side of [MAX_IMAGE_SIDE, 1280]) {
+      const scale = Math.min(1, side / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      // JPEG has no transparency: flatten onto white.
+      const flat = document.createElement('canvas');
+      flat.width = canvas.width;
+      flat.height = canvas.height;
+      const fctx = flat.getContext('2d');
+      fctx.fillStyle = '#fff';
+      fctx.fillRect(0, 0, flat.width, flat.height);
+      fctx.drawImage(canvas, 0, 0);
+      // Lossless versions (the original or PNG) keep screenshots sharp; lossy ones are fallbacks.
+      const lossless = [await canvasToBlob(canvas, 'image/png')];
+      if (keepOriginal && side === MAX_IMAGE_SIDE) lossless.push(file);
+      const lossy = [];
+      for (const q of [0.85, 0.7, 0.55]) {
+        lossy.push(await canvasToBlob(canvas, 'image/webp', q), await canvasToBlob(flat, 'image/jpeg', q));
+        if (lossy.some((c) => c && c.size <= MAX_IMAGE_BYTES)) break;
+      }
+      const usable = (list) => list.filter((c) => c && c.size <= MAX_IMAGE_BYTES && EMBED_TYPES.includes(c.type));
+      const smallest = (list) => list.reduce((a, b) => (b.size < a.size ? b : a));
+      const ok = usable([...lossless, ...lossy]);
+      if (!ok.length) continue;
+      const best = smallest(ok);
+      const okLossless = usable(lossless);
+      const sharp = okLossless.length ? smallest(okLossless) : null;
+      const pick = sharp && sharp.size <= Math.max(300 * 1024, best.size * 1.5) ? sharp : best;
+      return `data:${pick.type};base64,${await blobToBase64(pick)}`;
+    }
+    throw new Error(`küçültüldükten sonra da ${formatSize(MAX_IMAGE_BYTES)} sınırını aşıyor. Daha küçük bir resim seçin veya dosyayı Ekler'e yükleyin.`);
+  }
+
+  const editorEditable = () => $('#desc-editor').isContentEditable;
+
+  function rangeInEditor() {
+    const editor = $('#desc-editor');
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const r = sel.getRangeAt(0);
+    return editor.contains(r.commonAncestorContainer) ? r.cloneRange() : null;
+  }
+
+  function rangeFromPoint(x, y) {
+    let r = null;
+    if (document.caretRangeFromPoint) r = document.caretRangeFromPoint(x, y);
+    else if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(x, y);
+      if (pos) {
+        r = document.createRange();
+        r.setStart(pos.offsetNode, pos.offset);
+        r.collapse(true);
+      }
+    }
+    return r && $('#desc-editor').contains(r.commonAncestorContainer) ? r : null;
+  }
+
+  function placeCaret(range) {
+    const editor = $('#desc-editor');
+    editor.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    if (range && editor.contains(range.commonAncestorContainer)) sel.addRange(range);
+    else {
+      const end = document.createRange();
+      end.selectNodeContents(editor);
+      end.collapse(false);
+      sel.addRange(end);
+    }
+  }
+
+  // Processes image files and inserts them where the caret was when they were pasted/dropped/chosen.
+  async function insertImages(files, range) {
+    const images = [...files].filter(isImageFile);
+    if (!images.length) return;
+    if (!imagesEnabled) { toast('Açıklamaya resim yalnızca kullanıcı girişli ortak veritabanı modunda eklenebilir.'); return; }
+    if (!editorEditable()) return;
+    const token = desc.token;
+    const previousStatus = { text: $('#desc-status').textContent, hidden: $('#desc-status').hidden, cls: $('#desc-status').className };
+    setDescStatus(images.length > 1 ? `${images.length} resim işleniyor…` : 'Resim işleniyor…', 'info');
+    desc.busy += 1;
+    const urls = [];
+    const errors = [];
+    for (const f of images) {
+      try {
+        urls.push(await imageFileToDataUrl(f));
+      } catch (err) {
+        errors.push(`• ${f.name || 'Resim'}: ${err.message}`);
+      }
+    }
+    desc.busy -= 1;
+    if (token !== desc.token) return; // the dialog was closed meanwhile
+    const status = $('#desc-status');
+    status.textContent = previousStatus.text;
+    status.hidden = previousStatus.hidden;
+    status.className = previousStatus.cls;
+    if (urls.length && editorEditable()) {
+      placeCaret(range);
+      const html = urls.map((u) => `<img src="${u}" alt="">`).join('');
+      if (!document.execCommand('insertHTML', false, html)) {
+        const sel = window.getSelection();
+        const r = sel.getRangeAt(0);
+        r.deleteContents();
+        const frag = r.createContextualFragment(html);
+        const last = frag.lastChild;
+        r.insertNode(frag);
+        r.setStartAfter(last);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+      $('#desc-editor').dispatchEvent(new Event('input'));
+    }
+    if (errors.length) alert(`Şu resimler eklenemedi:\n${errors.join('\n')}`);
+  }
+
+  const imageView = { img: null };
+
+  function openImageDialog(img) {
+    imageView.img = img;
+    const dlg = $('#image-dialog');
+    $('#image-dialog-img').src = img.src;
+    const m = /^data:([^;]+);base64,/.exec(img.src);
+    const bytes = Math.floor(((img.src.length - (m ? m[0].length : 0)) * 3) / 4);
+    $('#image-dialog-info').textContent = `${img.naturalWidth} × ${img.naturalHeight} px · ${formatSize(bytes)}`;
+    $('#image-dialog-remove').hidden = !editorEditable();
+    dlg.showModal();
+    $('#image-dialog-close').focus();
+  }
+
+  function setupImageDialog() {
+    const dlg = $('#image-dialog');
+    const close = () => dlg.close();
+    $('#image-dialog-close').addEventListener('click', close);
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); }); // backdrop
+    dlg.addEventListener('close', () => { $('#image-dialog-img').removeAttribute('src'); imageView.img = null; });
+    $('#image-dialog-download').addEventListener('click', () => {
+      const m = /^data:(image\/([a-z]+));base64,(.*)$/.exec($('#image-dialog-img').src);
+      if (!m) return;
+      const no = editingTask && editingTask.no ? `gorev-${editingTask.no}-` : '';
+      download(`${no}resim.${m[2] === 'jpeg' ? 'jpg' : m[2]}`, new Blob([base64ToBytes(m[3])], { type: m[1] }));
+    });
+    $('#image-dialog-remove').addEventListener('click', () => {
+      const editor = $('#desc-editor');
+      const img = imageView.img;
+      if (img && editor.contains(img) && editorEditable()) {
+        const parent = img.parentElement;
+        img.remove();
+        if (parent && parent !== editor && !hasContent(parent) && parent.tagName === 'P') parent.remove();
+        editor.dispatchEvent(new Event('input'));
+      }
+      close();
+    });
+  }
+
   function setupEditor() {
     const editor = $('#desc-editor');
     const toolbar = $('#desc-editor-wrap .rte-toolbar');
+    const imageInput = $('#desc-image-input');
+    let imageRange = null;
+    $('#desc-image-btn').hidden = !imagesEnabled;
     const exec = (cmd, value = null) => { editor.focus(); document.execCommand(cmd, false, value); updateToolbarState(); };
     const currentBlock = () => String(document.queryCommandValue('formatBlock') || '').toUpperCase();
 
@@ -1293,21 +1513,49 @@
       if (b.dataset.cmd) exec(b.dataset.cmd);
       else if (b.dataset.block) exec('formatBlock', currentBlock() === b.dataset.block ? '<p>' : `<${b.dataset.block.toLowerCase()}>`);
       else if (b.dataset.action === 'link') insertLink();
+      else if (b.dataset.action === 'image') { imageRange = rangeInEditor(); imageInput.click(); }
       else if (b.dataset.action === 'clear') { exec('removeFormat'); exec('unlink'); exec('formatBlock', '<p>'); }
     });
     editor.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); insertLink(); }
     });
+    imageInput.addEventListener('change', () => {
+      const files = [...imageInput.files];
+      imageInput.value = '';
+      insertImages(files, imageRange);
+    });
     editor.addEventListener('paste', (e) => {
       e.preventDefault();
-      const html = e.clipboardData.getData('text/html');
-      if (html) document.execCommand('insertHTML', false, sanitizeHtml(html) || '');
-      else document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+      const cd = e.clipboardData;
+      const plain = cd.getData('text/plain');
+      // A copied picture/screenshot has no text; Word/Excel copies carry an image of the text too.
+      const images = [...cd.files].filter(isImageFile);
+      if (images.length && !plain.trim()) { insertImages(images, rangeInEditor()); return; }
+      const html = cd.getData('text/html');
+      if (html) {
+        let clean = sanitizeHtml(html) || '';
+        if (!imagesEnabled) clean = clean.replace(/<img [^>]*>/g, '');
+        document.execCommand('insertHTML', false, clean);
+      } else document.execCommand('insertText', false, plain);
     });
-    editor.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files.length) e.preventDefault(); });
-    editor.addEventListener('input', () => editor.classList.toggle('is-empty', !editor.textContent.trim() && !editor.querySelector('li')));
-    // Links open in a new tab with Ctrl/Cmd+click (a plain click places the caret).
+    editor.addEventListener('dragover', (e) => {
+      if (e.dataTransfer && [...e.dataTransfer.types].includes('Files') && editorEditable()) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    });
+    editor.addEventListener('drop', (e) => {
+      if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+      e.preventDefault();
+      const files = [...e.dataTransfer.files];
+      const images = files.filter(isImageFile);
+      if (images.length < files.length) toast('Resim olmayan dosyaları Ekler bölümüne bırakın.');
+      if (images.length) insertImages(images, rangeFromPoint(e.clientX, e.clientY));
+    });
+    editor.addEventListener('input', () => editor.classList.toggle('is-empty', !hasContent(editor) && !editor.querySelector('li')));
+    // Links open in a new tab with Ctrl/Cmd+click (a plain click places the caret); images open large.
     editor.addEventListener('click', (e) => {
+      if (e.target.tagName === 'IMG') { openImageDialog(e.target); return; }
       const a = e.target.closest('a');
       if (a && (e.ctrlKey || e.metaKey)) { e.preventDefault(); window.open(a.href, '_blank', 'noopener'); }
     });
@@ -3398,6 +3646,7 @@
     $('#task-dialog').addEventListener('cancel', (e) => { e.preventDefault(); closeTaskDialog(); });
     $('#task-dialog').addEventListener('close', () => { desc.token += 1; attach.token += 1; attach.taskId = null; comm.token += 1; comm.taskId = null; comm.editing = null; closeMentions(); });
     setupEditor();
+    setupImageDialog();
     setupAttachments();
     setupComments();
     if (!richTasks) document.body.classList.add('no-task-extras');
