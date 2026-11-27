@@ -16,6 +16,11 @@
   const parseIso = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
   const addDays = (s, n) => { const d = parseIso(s); d.setDate(d.getDate() + n); return isoOf(d); };
   const todayIso = () => isoOf(new Date());
+  // Local "YYYY-MM-DD HH:mm" for an ISO timestamp (e.g. createdAt); '' if missing/invalid.
+  const stampOf = (s) => {
+    const d = s ? new Date(s) : null;
+    return d && !Number.isNaN(d.getTime()) ? `${isoOf(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
+  };
   const isIso = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && isoOf(parseIso(s)) === s;
   // Calendar day number used by the database rules to check the 30-day window.
   const dayNumber = (s) => { const [y, m, d] = s.split('-').map(Number); return Math.floor(Date.UTC(y, m - 1, d) / 86400000); };
@@ -526,8 +531,8 @@
       }
       const [from, to] = range();
       const sorted = [...list].sort((a, b) => a.tarih.localeCompare(b.tarih) || a.kullanici.localeCompare(b.kullanici));
-      const entriesAoa = [['Tarih', 'Kullanıcı', 'Ad Soyad', 'No', 'Görev', 'Alan', 'Saat', 'Not'],
-        ...sorted.map((e) => [e.tarih, e.kullanici, app.fullNameOf(e.kullanici), entryNo(e) || '', entryTitle(e), entryAlan(e) || '', e.saat, e.not])];
+      const entriesAoa = [['Efor Tarihi', 'Kayıt Tarihi', 'Kullanıcı', 'Ad Soyad', 'No', 'Görev', 'Alan', 'Saat', 'Not'],
+        ...sorted.map((e) => [e.tarih, stampOf(e.createdAt), e.kullanici, app.fullNameOf(e.kullanici), entryNo(e) || '', entryTitle(e), entryAlan(e) || '', e.saat, e.not])];
       const byPerson = groupBy(list, (e) => e.kullanici);
       const byAlan = groupBy(list, (e) => entryAlan(e) || '');
       const byTask = groupBy(list, (e) => e.gorevId);
@@ -539,7 +544,7 @@
         ws['!cols'] = cols.map((wch) => ({ wch }));
         XLSX.utils.book_append_sheet(wb, ws, name);
       };
-      add('Girişler', entriesAoa, [12, 12, 20, 6, 44, 22, 8, 50]);
+      add('Girişler', entriesAoa, [12, 17, 12, 20, 6, 44, 22, 8, 50]);
       add('Kişi', [['Kişi', 'Ad Soyad', 'Giriş', 'Saat', 'Pay (%)'], ...byPerson.map((g) => [g.key, app.fullNameOf(g.key), g.count, g.hours, share(g.hours)]), ['Toplam', '', list.length, total, 100]], [12, 22, 8, 10, 10]);
       add('Alan', [['Alan', 'Kişi sayısı', 'Saat', 'Pay (%)'], ...byAlan.map((g) => [g.key || '(Alan yok)', g.people.size, g.hours, share(g.hours)]), ['Toplam', '', total, 100]], [26, 12, 10, 10]);
       add('Görev', [['No', 'Görev', 'Alan', 'Kişi sayısı', 'Saat', 'Pay (%)'], ...byTask.map((g) => [entryNo(g.sample) || '', entryTitle(g.sample), entryAlan(g.sample) || '', g.people.size, g.hours, share(g.hours)]), ['', 'Toplam', '', '', total, 100]], [6, 44, 22, 12, 10, 10]);
@@ -549,7 +554,7 @@
         ...byPerson.map((p) => [app.fullNameOf(p.key), ...byAlan.map((a) => cell.get(`${p.key}\u0000${a.key}`) || 0), p.hours]),
         ['Toplam', ...byAlan.map((a) => a.hours), total]], [22, ...byAlan.map(() => 14), 10]);
       const D = dailyData(list);
-      add('Gün', [['Tarih', ...D.people.map((u) => app.fullNameOf(u)), 'Toplam'],
+      add('Gün', [['Efor Tarihi', ...D.people.map((u) => app.fullNameOf(u)), 'Toplam'],
         ...D.days.map((day) => [day, ...D.people.map((u) => D.cell(day, u)), D.dayTotal(day)]),
         ['Toplam', ...D.people.map((u) => D.personTotal(u)), D.total]], [12, ...D.people.map(() => 16), 10]);
       XLSX.writeFile(wb, `timesheet-${from}_${to}.xlsx`);
