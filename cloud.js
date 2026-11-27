@@ -4,7 +4,7 @@
 //               /lists/{alan|sahip|durum} = values separated by "\n"
 //               /users/{encoded e-mail} = { ad, soyad, kullaniciAdi, email, sira } (read-only, maintained in the console)
 //               /taskNumbers/{no} = task key (create-only registry that makes task numbers unique)
-//               /details/{key} = { aciklama (sanitized HTML), updatedAt, updatedBy }
+//               /details/{key} = { aciklama (sanitized HTML, images embedded as data URIs; ≤ 3,000,000), updatedAt, updatedBy }
 //               /attachments/{key}/{fileId} = { ad, boyut, tur, yukleyen, yuklenmeTarihi, parca }
 //               /files/{key}/{fileId} = { yukleyen, p: { 0: base64, 1: base64, ... } }
 //               /comments/{key}/{commentId} = { yazan, metin (≤ 600), tarih, duzenlenme? } (Azure API only)

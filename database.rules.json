@@ -79,7 +79,7 @@
         ".write": "auth != null && auth.token.email != null && root.child('users/' + auth.token.email.toLowerCase().replace('.', '%2E')).exists()",
         ".validate": "$key.length <= 120 && newData.hasChildren(['aciklama'])",
         "aciklama": {
-          ".validate": "newData.isString() && newData.val().length <= 100000"
+          ".validate": "newData.isString() && newData.val().length <= 3000000"
         },
         "updatedAt": {
           ".validate": "newData.isString() && newData.val().length <= 40"

@@ -51,7 +51,7 @@ const COMMENT_FIELDS = {
   duzenlenme: (v) => isStr(v, 40, 1),
 };
 const DETAIL_FIELDS = {
-  aciklama: (v) => isStr(v, 100000),
+  aciklama: (v) => isStr(v, 3000000), // HTML incl. embedded images (data URIs)
   updatedAt: (v) => isStr(v, 40),
   updatedBy: (v) => isStr(v, 120),
 };

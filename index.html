@@ -346,6 +346,8 @@
                   <button type="button" class="rte-btn" data-block="BLOCKQUOTE" title="Alıntı" aria-label="Alıntı"><svg class="icon" aria-hidden="true"><use href="#i-quote"/></svg></button>
                   <button type="button" class="rte-btn" data-block="PRE" title="Kod bloğu" aria-label="Kod bloğu"><svg class="icon" aria-hidden="true"><use href="#i-code"/></svg></button>
                   <button type="button" class="rte-btn" data-action="link" title="Bağlantı ekle" aria-label="Bağlantı ekle"><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg></button>
+                  <button type="button" class="rte-btn" data-action="image" id="desc-image-btn" title="Resim ekle (yapıştırabilir veya sürükleyebilirsiniz)" aria-label="Resim ekle"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg></button>
+                  <input type="file" id="desc-image-input" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" multiple hidden>
                   <span class="rte-sep" aria-hidden="true"></span>
                   <button type="button" class="rte-btn" data-action="clear" title="Biçimi temizle" aria-label="Biçimi temizle"><svg class="icon" aria-hidden="true"><use href="#i-eraser"/></svg></button>
                 </div>
@@ -407,6 +409,19 @@
         <button type="submit" class="btn btn-primary"><span class="spinner" aria-hidden="true" hidden></span><span class="submit-label">Kaydet</span></button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="image-dialog" class="modal image-dialog" aria-label="Resim">
+    <div class="image-dialog-body">
+      <img id="image-dialog-img" alt="Açıklamadaki resim">
+    </div>
+    <div class="dialog-actions">
+      <span id="image-dialog-info" class="image-dialog-info"></span>
+      <span class="spacer"></span>
+      <button type="button" id="image-dialog-remove" class="btn btn-ghost btn-danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Açıklamadan kaldır</button>
+      <button type="button" id="image-dialog-download" class="btn"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>İndir</button>
+      <button type="button" id="image-dialog-close" class="btn btn-primary">Kapat</button>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
