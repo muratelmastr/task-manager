@@ -594,6 +594,7 @@
   }
 
   function renderView() {
+    closeTaskMenu();
     const view = ui.view;
     $('#list-view').hidden = view !== 'list';
     $('#board-view').hidden = view !== 'board';
@@ -2388,6 +2389,135 @@
     return true;
   }
 
+  // ---------- Duplicate task ----------
+  // The copy gets every field and detail of the source except the owner (Sahip). The number, the
+  // creator and the timestamps are new, and a completed source becomes an open task. In the shared
+  // database attachments and comments are re-created as the current user (the rules allow nothing
+  // else); copied comments send no mails. Time entries are not copied.
+
+  let duplicating = false;
+
+  async function duplicateTask(source) {
+    if (duplicating) return;
+    const copy = Object.assign(newTaskDraft(), {
+      alan: source.alan,
+      gorev: source.gorev,
+      sahip: '',
+      durum: source.durum === DONE ? firstOpenStatus() : source.durum,
+      oncelik: source.oncelik,
+      tamamlanmaTarihi: source.tamamlanmaTarihi,
+      no: null,
+      aciklama: '',
+      aciklamaVar: false,
+      ekSayisi: 0,
+      yorumSayisi: 0,
+    });
+    if (richTasks && !cloud) copy.aciklama = source.aciklama || '';
+    if (richTasks && cloud && source.aciklamaVar) {
+      // The description is copied first, so a failure leaves nothing half-created.
+      duplicating = true;
+      toast('Görev kopyalanıyor…');
+      try {
+        const d = await cloud.store.get(`details/${taskKey(source.id)}`);
+        const html = sanitizeHtml(d && d.aciklama);
+        if (html) {
+          await cloud.store.put(`details/${taskKey(copy.id)}`, { aciklama: html, updatedAt: nowIso(), updatedBy: myUsername() || auth.email });
+          copy.aciklamaVar = true;
+        }
+      } catch (err) {
+        alert(`Görev kopyalanamadı: açıklaması okunamadı veya yazılamadı (${err.message}).`);
+        return;
+      } finally {
+        duplicating = false;
+      }
+    }
+
+    data.tasks.push(copy);
+    ui.pinned.add(copy.id);
+    save();
+    render();
+    const extras = !!cloud && (attachmentsEnabled || commentsEnabled) && !!(source.ekSayisi || source.yorumSayisi);
+    toast(extras ? 'Görev kopyalandı. Ekler ve yorumlar kopyalanıyor…' : 'Görev kopyalandı.');
+    if (!$('#task-dialog').open && !$('#settings-dialog').open && !$('#ts-dialog').open) openTaskDialog(copy);
+    if (cloud && (attachmentsEnabled || commentsEnabled)) copyTaskExtras(source, copy, extras);
+  }
+
+  // Attachments and comments of the source, copied in the background into the new task.
+  async function copyTaskExtras(source, copy, announced) {
+    const problems = [];
+    let copied = 0;
+    const current = () => data.tasks.find((t) => t.id === copy.id) || null;
+
+    if (commentsEnabled) {
+      try {
+        const list = await cloud.store.get(commentPath(source.id));
+        const items = Object.values(list || {}).filter((c) => c && typeof c === 'object' && str(c.metin))
+          .sort((a, b) => str(a.tarih).localeCompare(str(b.tarih)));
+        if (items.length) {
+          // The rules only accept comments on a task that is already on the server.
+          await sync();
+          if (!current()) return;
+          if (cloud.remote.tasks[copy.id] === undefined) throw new Error('görev henüz ortak veritabanına kaydedilemedi');
+          const patch = {};
+          for (const c of items) {
+            const item = { yazan: myUsername(), metin: str(c.metin).slice(0, MAX_COMMENT), tarih: str(c.tarih) || nowIso() };
+            if (str(c.duzenlenme)) item.duzenlenme = str(c.duzenlenme);
+            patch[commentPath(copy.id, uid())] = item;
+          }
+          await cloud.store.patch(patch);
+          copied += items.length;
+          const task = current();
+          if (task) {
+            await refreshCommentCount(task);
+            if ($('#task-dialog').open && comm.taskId === task.id && !comm.busy && !commentDraftPending()) loadComments(task);
+          }
+        }
+      } catch (err) {
+        problems.push(`yorumlar (${err.message})`);
+      }
+    }
+
+    if (attachmentsEnabled) {
+      const srcKey = taskKey(source.id);
+      let items = [];
+      try {
+        const list = await cloud.store.get(`attachments/${srcKey}`);
+        items = Object.entries(list || {})
+          .filter(([, v]) => v && typeof v === 'object')
+          .map(([id, v]) => ({ id, ad: str(v.ad) || 'dosya', tur: str(v.tur), parca: Number(v.parca) || 1, yuklenmeTarihi: str(v.yuklenmeTarihi) }))
+          .sort((a, b) => a.yuklenmeTarihi.localeCompare(b.yuklenmeTarihi));
+      } catch (err) {
+        problems.push(`ekler (${err.message})`);
+      }
+      for (const item of items) {
+        if (!current()) return;
+        let file;
+        try {
+          const chunks = [];
+          for (let i = 0; i < item.parca; i += 1) {
+            const b64 = await cloud.store.get(`files/${srcKey}/${item.id}/p/${i}`);
+            if (typeof b64 !== 'string') throw new Error('Dosya eksik veya bozuk.');
+            chunks.push(base64ToBytes(b64));
+          }
+          file = new File(chunks, item.ad, { type: item.tur });
+        } catch (err) {
+          problems.push(`"${item.ad}" (${err.message})`);
+          continue;
+        }
+        if (!file.size || !current()) continue;
+        // Uploaded like a file added in the dialog: progress is shown there and a failed upload
+        // stays in the list with "Tekrar dene" (runUpload reports the error itself).
+        const up = { id: uid(), taskId: copy.id, file, loaded: 0, error: null };
+        uploads.set(copy.id, [...(uploads.get(copy.id) || []), up]);
+        await runUpload(up);
+        if (!up.error) copied += 1;
+      }
+    }
+
+    if (problems.length) toast(`Kopyadaki bazı detaylar kopyalanamadı: ${problems.join(', ')}`);
+    else if (announced && copied) toast('Görevin ekleri ve yorumları kopyalandı.');
+  }
+
   // ---------- Settings (parametric lists) ----------
 
   function usageCount(key, value) {
@@ -2742,7 +2872,7 @@
 
   const isEditing = () => {
     const a = document.activeElement;
-    return !!(a && a.closest && ((a.closest('#task-body') && a.matches('input, select, textarea')) || a.closest('dialog, .filter-panel'))) || $('#task-dialog').open || $('#settings-dialog').open || $('#ts-dialog').open;
+    return !!(a && a.closest && ((a.closest('#task-body') && a.matches('input, select, textarea')) || a.closest('dialog, .filter-panel'))) || $('#task-dialog').open || $('#settings-dialog').open || $('#ts-dialog').open || !$('#task-context-menu').hidden;
   };
 
   function renderWhenIdle() {
@@ -3408,6 +3538,96 @@
 
   // ---------- Event wiring ----------
 
+  // Right-click menu on list rows and board cards. The Görev text box keeps the browser's own menu
+  // (copy/paste). Opens at the pointer, or under the focused element for Shift+F10 / the menu key.
+  const taskMenu = { taskId: null, anchor: null, returnFocus: null, anchorTop: 0 };
+  const taskMenuItems = () => [...$('#task-context-menu').querySelectorAll('[role="menuitem"]:not(:disabled)')];
+
+  function openTaskMenu(task, anchor, x, y) {
+    closeTaskMenu();
+    const menu = $('#task-context-menu');
+    const done = task.durum === DONE;
+    const del = $('#ctx-delete');
+    del.disabled = done;
+    del.title = done ? 'Tamamlanan görevler silinemez' : '';
+    Object.assign(taskMenu, { taskId: task.id, anchor, returnFocus: document.activeElement, anchorTop: anchor.getBoundingClientRect().top });
+    anchor.classList.add('is-context');
+    menu.hidden = false;
+    // Layout size: the opening animation scales the box, so getBoundingClientRect would be too small.
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+    const left = Math.min(x, window.innerWidth - width - 8);
+    const top = y + height > window.innerHeight - 8 ? y - height : y;
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+    const items = taskMenuItems();
+    if (items.length) items[0].focus();
+  }
+
+  function closeTaskMenu(restoreFocus = false) {
+    const menu = $('#task-context-menu');
+    if (menu.hidden) return;
+    menu.hidden = true;
+    if (taskMenu.anchor) taskMenu.anchor.classList.remove('is-context');
+    const back = taskMenu.returnFocus;
+    Object.assign(taskMenu, { taskId: null, anchor: null, returnFocus: null });
+    if (restoreFocus && back && back.isConnected && typeof back.focus === 'function') back.focus();
+    if (cloud && cloud.renderPending) renderWhenIdle();
+  }
+
+  function setupTaskContextMenu() {
+    const menu = $('#task-context-menu');
+    function onContextMenu(e) {
+      if (e.target.closest('.gorev-input')) return;
+      const anchor = e.target.closest('tr[data-id], .card[data-id]');
+      const task = anchor && data.tasks.find((t) => t.id === anchor.dataset.id);
+      if (!task) return;
+      e.preventDefault();
+      let x = e.clientX;
+      let y = e.clientY;
+      if (!x && !y) {
+        const r = (e.target.closest('input, select, button, .card') || anchor).getBoundingClientRect();
+        x = r.left + 8;
+        y = r.bottom + 4;
+      }
+      openTaskMenu(task, anchor, x, y);
+    }
+    $('#task-body').addEventListener('contextmenu', onContextMenu);
+    $('#board-view').addEventListener('contextmenu', onContextMenu);
+
+    const run = (action) => () => {
+      const task = data.tasks.find((t) => t.id === taskMenu.taskId);
+      closeTaskMenu();
+      if (task) action(task);
+    };
+    $('#ctx-duplicate').addEventListener('click', run(duplicateTask));
+    $('#ctx-delete').addEventListener('click', run(deleteTask));
+    menu.addEventListener('contextmenu', (e) => e.preventDefault());
+    menu.addEventListener('keydown', (e) => {
+      const all = taskMenuItems();
+      const idx = all.indexOf(document.activeElement);
+      const moves = { ArrowDown: idx + 1, ArrowUp: idx - 1, Home: 0, End: all.length - 1 };
+      if (e.key in moves) {
+        e.preventDefault();
+        if (all.length) all[(moves[e.key] + all.length) % all.length].focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeTaskMenu(true);
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        closeTaskMenu(true);
+      }
+    });
+    document.addEventListener('mousedown', (e) => { if (!menu.contains(e.target)) closeTaskMenu(); }, true);
+    // Scrolling closes the menu once the task has moved away from it (a scroll that was already
+    // under way when the menu opened is ignored).
+    window.addEventListener('scroll', () => {
+      if (taskMenu.anchor && Math.abs(taskMenu.anchor.getBoundingClientRect().top - taskMenu.anchorTop) > 2) closeTaskMenu();
+    }, true);
+    window.addEventListener('resize', () => closeTaskMenu());
+    window.addEventListener('blur', () => closeTaskMenu());
+  }
+
   function setupMenu(menuSel, buttonSel, listSel) {
     const button = $(buttonSel);
     const list = $(listSel);
@@ -3736,6 +3956,7 @@
     });
     setupMenu('#data-menu', '#btn-data-menu', '#data-menu-list');
     setupMenu('#user-menu', '#btn-user-menu', '#user-menu-list');
+    setupTaskContextMenu();
     $('#btn-logout').addEventListener('click', logout);
     $('#btn-change-password').addEventListener('click', changePassword);
     $('#btn-my-tasks').addEventListener('click', toggleMyTasks);
