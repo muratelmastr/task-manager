@@ -595,6 +595,7 @@
 
   function renderView() {
     closeTaskMenu();
+    closeCardPicker();
     const view = ui.view;
     $('#list-view').hidden = view !== 'list';
     $('#board-view').hidden = view !== 'board';
@@ -695,12 +696,6 @@
     if (PRIORITY_STYLE[value]) cell.classList.add(PRIORITY_STYLE[value].cls);
     cell.classList.toggle('is-empty', !value);
     cell.querySelector('.prio-icon').replaceChildren(priorityIcon(value));
-  }
-
-  function buildPriorityChip(value) {
-    if (!value) return null;
-    return el('span', { class: `prio-chip ${PRIORITY_STYLE[value].cls}`, title: `Öncelik: ${value}` },
-      priorityIcon(value), value);
   }
 
   function buildRow(task) {
@@ -849,6 +844,24 @@
   }
   // ---------- Board view ----------
 
+  // Quick edits on cards: Sahip, Öncelik and Alan open a picker, the date opens the browser's
+  // calendar and the title turns into a text box. Clicks elsewhere on the card open the dialog.
+  const FIELD_LABELS = { sahip: 'Sahip', oncelik: 'Öncelik', alan: 'Alan', tamamlanmaTarihi: 'Tamamlanma Tarihi', gorev: 'Görev' };
+
+  function cardField(field, cls, label, onActivate, ...children) {
+    const picker = field === 'sahip' || field === 'oncelik' || field === 'alan';
+    return el('button', {
+      type: 'button',
+      class: `card-field ${cls}`.trim(),
+      dataset: { field },
+      title: `${FIELD_LABELS[field]} değiştir`,
+      'aria-label': `${FIELD_LABELS[field]}: ${label}. Değiştir`,
+      'aria-haspopup': picker ? 'listbox' : null,
+      'aria-expanded': picker ? 'false' : null,
+      onclick: (e) => { e.stopPropagation(); onActivate(e.currentTarget); },
+    }, ...children);
+  }
+
   function buildCard(task) {
     const { level, label } = dueInfo(task);
     const done = task.durum === DONE;
@@ -856,28 +869,66 @@
     if (level) classes.push(`due-${level}`);
     if (done) classes.push('is-done');
     if (ui.pinned.has(task.id)) classes.push('is-new');
+    const pick = (field) => (trigger) => openCardPicker(task.id, field, trigger);
+
+    const sahip = cardField('sahip', `card-sahip${task.sahip ? '' : ' is-empty'}`, task.sahip || 'Atanmamış', pick('sahip'),
+      buildAvatar(task.sahip, 'avatar-sm'), el('span', { class: 'card-field-text', textContent: task.sahip || 'Atanmamış' }));
+    const prioStyle = PRIORITY_STYLE[task.oncelik];
+    const oncelik = prioStyle
+      ? cardField('oncelik', `prio-chip ${prioStyle.cls}`, task.oncelik, pick('oncelik'), priorityIcon(task.oncelik), task.oncelik)
+      : cardField('oncelik', 'card-placeholder', NO_PRIORITY_LABEL, pick('oncelik'), icon('plus', 'icon-sm'), 'Öncelik');
+    const alan = task.alan
+      ? cardField('alan', `tag card-alan tone-${toneFor('alan', task.alan)}`, task.alan, pick('alan'), task.alan)
+      : cardField('alan', 'card-placeholder', 'Seçilmemiş', pick('alan'), icon('plus', 'icon-sm'), 'Alan');
+
+    const dateInput = el('input', {
+      type: 'date',
+      class: 'card-date-input',
+      tabIndex: -1,
+      'aria-hidden': 'true',
+      value: task.tamamlanmaTarihi,
+      onclick: (e) => e.stopPropagation(),
+      onkeydown: (e) => {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') {
+          e.stopPropagation();
+          if (e.key !== 'Tab') e.preventDefault();
+          dateBtn.focus();
+        }
+      },
+      onchange: (e) => onCardFieldChange(task.id, 'tamamlanmaTarihi', isIsoDate(e.target.value) ? e.target.value : ''),
+    });
+    const dateBtn = task.tamamlanmaTarihi
+      ? cardField('tamamlanmaTarihi', 'card-date', formatDate(task.tamamlanmaTarihi), () => openDateInput(dateInput),
+        icon('calendar', 'icon-sm'), formatDate(task.tamamlanmaTarihi))
+      : cardField('tamamlanmaTarihi', 'card-date card-placeholder', 'Belirtilmemiş', () => openDateInput(dateInput),
+        icon('plus', 'icon-sm'), 'Tarih');
 
     const badgeCls = level === 'red' ? 'badge-danger' : level === 'yellow' ? 'badge-warning' : '';
     const indicators = buildIndicators(task);
     const meta = el('div', { class: 'card-meta' },
-      el('span', { class: `card-sahip${task.sahip ? '' : ' is-empty'}` }, buildAvatar(task.sahip, 'avatar-sm'), task.sahip || 'Atanmamış'),
+      sahip,
       indicators.length ? el('span', { class: 'card-indicators' }, ...indicators) : null,
-      task.tamamlanmaTarihi
-        ? el('span', { class: 'card-due' },
-          el('span', { class: 'card-date' }, icon('calendar', 'icon-sm'), formatDate(task.tamamlanmaTarihi)),
-          label && !done ? el('span', { class: `badge ${badgeCls}`.trim(), textContent: label }) : null)
-        : null,
+      el('span', { class: 'card-due' },
+        el('span', { class: 'card-date-wrap' }, dateBtn, dateInput),
+        label && !done ? el('span', { class: `badge ${badgeCls}`.trim(), textContent: label }) : null),
     );
+
+    const title = cardField('gorev', `card-title${task.gorev ? '' : ' is-empty'}`, task.gorev || 'İsimsiz görev',
+      (trigger) => editCardTitle(task.id, trigger), task.gorev || '(İsimsiz görev)');
+    title.title = 'İsmi düzenle';
 
     const card = el('article', {
       class: classes.join(' '),
       draggable: true,
       tabIndex: 0,
-      title: 'Düzenlemek için tıklayın, durumunu değiştirmek için sürükleyin',
+      title: 'Detayı açmak için tıklayın, durumunu değiştirmek için sürükleyin. Sahip, öncelik, tarih, alan ve isim üzerlerine tıklanarak değiştirilebilir.',
       'aria-label': `${task.no ? `Görev ${task.no}: ` : ''}${task.gorev || 'İsimsiz görev'}${task.oncelik ? `, ${task.oncelik} öncelik` : ''}${task.sahip ? `, ${task.sahip}` : ''}${label && !done ? `, ${label}` : ''}`,
       dataset: { id: task.id },
       onclick: () => openTaskDialog(task),
-      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskDialog(task); } },
+      onkeydown: (e) => {
+        if (e.target !== card) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskDialog(task); }
+      },
       ondragstart: (e) => {
         e.dataTransfer.setData('text/plain', task.id);
         e.dataTransfer.effectAllowed = 'move';
@@ -888,11 +939,187 @@
     },
     el('div', { class: 'card-top' },
       richTasks ? el('span', { class: `card-no${task.no ? '' : ' is-pending'}`, textContent: taskNoLabel(task) || '#…' }) : null,
-      task.alan ? el('span', { class: `tag card-alan tone-${toneFor('alan', task.alan)}`, textContent: task.alan }) : null,
-      buildPriorityChip(task.oncelik)),
-    el('div', { class: `card-title${task.gorev ? '' : ' is-empty'}`, textContent: task.gorev || '(İsimsiz görev)' }),
+      alan,
+      oncelik),
+    title,
     meta);
     return card;
+  }
+
+  const cardElement = (id) => $('#board-view').querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+
+  function focusCardField(id, field) {
+    const card = cardElement(id);
+    const target = card && (card.querySelector(`.card-field[data-field="${field}"]`) || card);
+    if (target) target.focus();
+  }
+
+  // Saves a quick edit and redraws only that card, so the board keeps its order until the next render.
+  function onCardFieldChange(id, field, value) {
+    const task = data.tasks.find((t) => t.id === id);
+    if (!task) return;
+    const previousSahip = task.sahip;
+    if (applyChange(task, field, value)) {
+      if (field === 'sahip') markAssignment(task, previousSahip);
+      save();
+      const card = cardElement(id);
+      if (card) card.replaceWith(buildCard(task));
+      renderSummary();
+      renderBackupInfo();
+    }
+    focusCardField(id, field);
+  }
+
+  // The date input sits invisibly under its button; showPicker opens the browser's calendar there.
+  function openDateInput(input) {
+    input.focus({ preventScroll: true });
+    try {
+      input.showPicker();
+    } catch {
+      input.click();
+    }
+  }
+
+  function editCardTitle(id, titleBtn) {
+    const task = data.tasks.find((t) => t.id === id);
+    const card = titleBtn.closest('.card');
+    if (!task || !card) return;
+    let finished = false;
+    const input = el('input', {
+      type: 'text',
+      class: 'card-title-input',
+      maxLength: 255,
+      value: task.gorev,
+      placeholder: 'Görev açıklaması…',
+      'aria-label': 'Görev',
+      onclick: (e) => e.stopPropagation(),
+      ondblclick: (e) => e.stopPropagation(),
+      onkeydown: (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      },
+      onblur: () => finish(true),
+    });
+    function finish(commit) {
+      if (finished) return;
+      finished = true;
+      const value = input.value.trim();
+      if (commit && value !== task.gorev) {
+        onCardFieldChange(id, 'gorev', value);
+        return;
+      }
+      card.draggable = true;
+      if (input.isConnected) {
+        input.replaceWith(titleBtn);
+        titleBtn.focus();
+      }
+      if (cloud && cloud.renderPending) renderWhenIdle();
+    }
+    // A draggable ancestor would turn text selection with the mouse into a card drag.
+    card.draggable = false;
+    titleBtn.replaceWith(input);
+    input.focus();
+    input.select();
+  }
+
+  // Shared picker for Sahip, Öncelik and Alan on board cards.
+  const cardPicker = { taskId: null, field: null, trigger: null, anchorTop: 0 };
+  const cardPickerItems = () => [...$('#card-picker').querySelectorAll('[role="option"]')];
+
+  function cardPickerOptions(task, field) {
+    if (field === 'oncelik') {
+      return [
+        ...PRIORITIES.map((p) => ({ value: p, label: p, lead: el('span', { class: `card-picker-prio ${PRIORITY_STYLE[p].cls}` }, priorityIcon(p)) })),
+        { value: '', label: NO_PRIORITY_LABEL, lead: el('span', { class: 'card-picker-prio' }, priorityIcon('')) },
+      ];
+    }
+    const lead = field === 'sahip'
+      ? (v) => buildAvatar(v, 'avatar-sm')
+      : (v) => el('span', { class: `status-dot tone-${toneFor('alan', v)}`, 'aria-hidden': 'true' });
+    const options = data.lists[field].map((v) => ({ value: v, label: v, lead: lead(v) }));
+    // Alan is required, so it has no empty choice (same as the details dialog).
+    if (field === 'sahip') options.unshift({ value: '', label: 'Atanmamış', lead: lead('') });
+    const current = task[field];
+    if (current && !data.lists[field].includes(current)) options.push({ value: current, label: `${current} (listede yok)`, lead: lead(current) });
+    return options;
+  }
+
+  function openCardPicker(id, field, trigger) {
+    const toggle = cardPicker.trigger === trigger;
+    closeCardPicker();
+    const task = data.tasks.find((t) => t.id === id);
+    if (toggle || !task) return;
+    closeTaskMenu();
+    const menu = $('#card-picker');
+    const current = task[field] || '';
+    menu.setAttribute('aria-label', FIELD_LABELS[field]);
+    menu.replaceChildren(...cardPickerOptions(task, field).map((o) => el('button', {
+      type: 'button',
+      role: 'option',
+      class: 'menu-item',
+      tabIndex: -1,
+      'aria-selected': String(o.value === current),
+      onclick: () => {
+        closeCardPicker();
+        onCardFieldChange(id, field, o.value);
+      },
+    }, o.lead, el('span', { class: 'menu-item-label', textContent: o.label }), o.value === current ? icon('check', 'icon-sm menu-item-check') : null)));
+    const rect = trigger.getBoundingClientRect();
+    Object.assign(cardPicker, { taskId: id, field, trigger, anchorTop: rect.top });
+    trigger.setAttribute('aria-expanded', 'true');
+    trigger.classList.add('is-open');
+    menu.hidden = false;
+    // Layout size: the opening animation scales the box, so getBoundingClientRect would be too small.
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+    const below = rect.bottom + 4;
+    const top = below + height > window.innerHeight - 8 && rect.top - height - 4 >= 8 ? rect.top - height - 4 : below;
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+    const items = cardPickerItems();
+    const selected = items.find((b) => b.getAttribute('aria-selected') === 'true') || items[0];
+    if (selected) selected.focus();
+  }
+
+  function closeCardPicker(restoreFocus = false) {
+    const menu = $('#card-picker');
+    if (menu.hidden) return;
+    menu.hidden = true;
+    const { trigger } = cardPicker;
+    Object.assign(cardPicker, { taskId: null, field: null, trigger: null });
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.classList.remove('is-open');
+      if (restoreFocus && trigger.isConnected) trigger.focus();
+    }
+    if (cloud && cloud.renderPending) renderWhenIdle();
+  }
+
+  function setupCardPicker() {
+    const menu = $('#card-picker');
+    menu.addEventListener('contextmenu', (e) => e.preventDefault());
+    menu.addEventListener('keydown', (e) => {
+      const all = cardPickerItems();
+      const idx = all.indexOf(document.activeElement);
+      const moves = { ArrowDown: idx + 1, ArrowUp: idx - 1, Home: 0, End: all.length - 1 };
+      if (e.key in moves) {
+        e.preventDefault();
+        if (all.length) all[(moves[e.key] + all.length) % all.length].focus();
+      } else if (e.key === 'Escape' || e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeCardPicker(true);
+      }
+    });
+    // Clicks on the trigger are left to its own handler, which closes the open picker (toggle).
+    document.addEventListener('mousedown', (e) => {
+      if (!menu.contains(e.target) && !(cardPicker.trigger && cardPicker.trigger.contains(e.target))) closeCardPicker();
+    }, true);
+    window.addEventListener('scroll', () => {
+      if (cardPicker.trigger && Math.abs(cardPicker.trigger.getBoundingClientRect().top - cardPicker.anchorTop) > 2) closeCardPicker();
+    }, true);
+    window.addEventListener('resize', () => closeCardPicker());
+    window.addEventListener('blur', () => closeCardPicker());
   }
 
   function buildColumnHeader(status, count) {
@@ -2872,7 +3099,7 @@
 
   const isEditing = () => {
     const a = document.activeElement;
-    return !!(a && a.closest && ((a.closest('#task-body') && a.matches('input, select, textarea')) || a.closest('dialog, .filter-panel'))) || $('#task-dialog').open || $('#settings-dialog').open || $('#ts-dialog').open || !$('#task-context-menu').hidden;
+    return !!(a && a.closest && ((a.closest('#task-body, #board-view') && a.matches('input, select, textarea')) || a.closest('dialog, .filter-panel'))) || $('#task-dialog').open || $('#settings-dialog').open || $('#ts-dialog').open || !$('#task-context-menu').hidden || !$('#card-picker').hidden;
   };
 
   function renderWhenIdle() {
@@ -3545,6 +3772,7 @@
 
   function openTaskMenu(task, anchor, x, y) {
     closeTaskMenu();
+    closeCardPicker();
     const menu = $('#task-context-menu');
     const done = task.durum === DONE;
     const del = $('#ctx-delete');
@@ -3578,7 +3806,7 @@
   function setupTaskContextMenu() {
     const menu = $('#task-context-menu');
     function onContextMenu(e) {
-      if (e.target.closest('.gorev-input')) return;
+      if (e.target.closest('.gorev-input, .card-title-input')) return;
       const anchor = e.target.closest('tr[data-id], .card[data-id]');
       const task = anchor && data.tasks.find((t) => t.id === anchor.dataset.id);
       if (!task) return;
@@ -3957,6 +4185,7 @@
     setupMenu('#data-menu', '#btn-data-menu', '#data-menu-list');
     setupMenu('#user-menu', '#btn-user-menu', '#user-menu-list');
     setupTaskContextMenu();
+    setupCardPicker();
     $('#btn-logout').addEventListener('click', logout);
     $('#btn-change-password').addEventListener('click', changePassword);
     $('#btn-my-tasks').addEventListener('click', toggleMyTasks);
