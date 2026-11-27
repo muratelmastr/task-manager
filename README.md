@@ -217,12 +217,12 @@ Mail servisi geçici olarak reddederse (ör. saatlik sınır) uygulama atama ve 
 
 ### Gecikme maili
 
-`overdueDigest` zamanlayıcısı her gün **07:00 UTC = 10:00 Türkiye saati** (hafta sonu dahil) çalışır.
+`overdueDigest` zamanlayıcısı **hafta içi (Pazartesi–Cuma) 07:00 UTC = 10:00 Türkiye saati** çalışır; Cumartesi ve Pazar mail gitmez. Hafta sonu dolan görevler Pazartesi maili ile gecikmiş olarak gelir.
 
 - **Seçim:** Durumu `Tamamlandı` olmayan, Sahibi bir kullanıcı hesabına karşılık gelen ve tamamlanma tarihi **dün veya daha önce** (gecikmiş) ya da **bugün** olan görevler. Tarihi boş, sahibi boş veya listede olmayan görevler dahil edilmez. "Bugün" İstanbul saatine göre hesaplanır.
 - **Mail:** Kişi başına tek mail; konu `Geciken görevleriniz: N görev · M görev bugün doluyor` (yalnızca bugün dolan varsa `Bugün dolan görevleriniz: M görev`). Görev bağlantıları `APP_URL?gorev=<No>` ile görevi açar.
 - **Tekrar gönderim yok:** Gönderilen kişi `data/jobs.json`'a o günün tarihiyle yazılır; aynı gün ikinci çalıştırma (ör. yeniden deneme) aynı kişiye tekrar göndermez. Gönderimi başarısız olan kişi kaydedilmez, bir sonraki çalıştırmada yeniden denenir. `MAIL_REDIRECT_TO` doluysa tüm gecikme mailleri de o adrese gider.
-- **Elle çalıştırma / önizleme** (`api` klasöründe, `DATA_CONNECTION` ayarlıyken). Elle gönderim günün kaydını değiştirmez; saat 10:00 gönderimi yine yapılır.
+- **Elle çalıştırma / önizleme** (`api` klasöründe, `DATA_CONNECTION` ayarlıyken). Elle gönderim günün kaydını değiştirmez; saat 10:00 gönderimi yine yapılır. Elle çalıştırma hafta sonu da çalışır.
 
 ```powershell
 node tools/overdue.js --dry-run                        # bugün kime hangi görevler gidecek (göndermez)

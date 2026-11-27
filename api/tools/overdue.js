@@ -1,6 +1,6 @@
 'use strict';
 
-// Overdue digest by hand (the timer sends it every day at 10:00).
+// Overdue digest by hand (the timer sends it Monday–Friday at 10:00; this tool works any day).
 //
 //   set DATA_CONNECTION=<storage connection string>
 //   node tools/overdue.js --dry-run                     who would get which tasks today (sends nothing)
