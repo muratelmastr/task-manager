@@ -2,7 +2,7 @@
   "name": "task-manager-api",
   "version": "2.0.0",
   "private": true,
-  "description": "Ekip Görev Takibi – Azure Functions backend (data API, sign-in, assignment mails, backups)",
+  "description": "SkyTrack – Azure Functions backend (data API, sign-in, assignment mails, backups)",
   "main": "src/functions/*.js",
   "engines": {
     "node": ">=20"

@@ -111,9 +111,9 @@ function buildMail({ task, owner, caller, link, redirected }) {
 ${note}<p style="margin:0 0 8px;font-size:15px">Merhaba ${esc(owner.ad || fullName(owner))},</p>
 <p style="margin:0 0 16px;font-size:15px"><strong>${esc(fullName(caller))}</strong> sizi aşağıdaki görevin sahibi olarak atadı.</p>
 <table style="width:100%;border-collapse:collapse;font-size:14px">${rows.map(([k, v]) => `<tr><td style="padding:8px 0;color:#6b7280;width:160px;vertical-align:top;border-top:1px solid #f0f1f3">${esc(k)}</td><td style="padding:8px 0;font-weight:600;border-top:1px solid #f0f1f3">${esc(v)}</td></tr>`).join('')}</table>
-<p style="margin:24px 0 0"><a href="${esc(link)}" style="display:inline-block;padding:10px 18px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600">Görevi aç</a></p>
+<p style="margin:24px 0 0"><a href="${esc(link)}" style="display:inline-block;padding:10px 18px;background:#1d6ff2;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600">Görevi aç</a></p>
 </div>
-<p style="max-width:560px;margin:12px auto 0;font-size:12px;color:#9ca3af">Bu mail Ekip Görev Takibi uygulaması tarafından otomatik gönderildi.</p>
+<p style="max-width:560px;margin:12px auto 0;font-size:12px;color:#9ca3af">Bu mail SkyTrack uygulaması tarafından otomatik gönderildi.</p>
 </body></html>`;
   const text = [
     redirected ? `[Test modu: asıl alıcı ${fullName(owner)} <${owner.email}>]\n` : '',

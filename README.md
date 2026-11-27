@@ -1,4 +1,4 @@
-# Ekip Görev Takibi
+# SkyTrack
 
 Ekip görevlerini Excel yerine tarayıcıda takip etmek için tek sayfalık, kurulum gerektirmeyen bir HTML uygulaması. Ekip üyeleri kendi e-posta ve şifreleriyle giriş yapar.
 
@@ -148,7 +148,7 @@ CORS yalnızca `https://muratelmastr.github.io` adresine izin verir. Maliyet bu 
 | `SMTP_HOST` / `SMTP_PORT` | *(isteğe bağlı)* Varsayılan `smtp.gmail.com` / `465` |
 | `ACS_CONNECTION_STRING` | *(isteğe bağlı)* Azure Communication Services; doluysa SMTP yerine kullanılır (`api/setup-acs.ps1`) |
 | `RESEND_API_KEY` | *(isteğe bağlı)* ACS ve SMTP yoksa Resend kullanılır |
-| `MAIL_FROM` | Gönderen, ör. `Ekip Görev Takibi <mrtlms@gmail.com>` (SMTP hesabıyla aynı adres olmalı) |
+| `MAIL_FROM` | Gönderen, ör. `SkyTrack <mrtlms@gmail.com>` (SMTP hesabıyla aynı adres olmalı) |
 | `MAIL_REDIRECT_TO` | *(isteğe bağlı)* Doluysa tüm mailler bu adrese gider ve konuda asıl alıcı yazar (test modu) |
 
 Bir ayarı değiştirmek (ör. Gmail uygulama şifresi):
@@ -245,6 +245,7 @@ Depoyu indirip `index.html` dosyasını tarayıcıda açmanız yeterlidir. Excel
 |---|---|
 | `index.html` | Sayfa yapısı |
 | `styles.css` | Görünüm |
+| `assets/` | SkyTrack marka dosyaları: favicon seti, `site.webmanifest`, `logo/` altında yatay logo ve işaret (SVG) |
 | `app.js` | Uygulama mantığı (veri, tablo, filtreler, ayarlar, içe/dışa aktarma, bulut eşitleme, giriş akışı) |
 | `auth.js` | Giriş istemcisi (e-posta/şifre girişi, şifre belirleme, oturum yenileme): Azure API veya Firebase Authentication |
 | `cloud.js` | Veri istemcisi (Firebase REST biçimi; Azure API veya Firebase Realtime Database) |
